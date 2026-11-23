@@ -1,0 +1,144 @@
+{
+  "projects": [
+    {
+      "id": "P1",
+      "name": "Customer Portal Revamp",
+      "client": "Northwind Retail",
+      "description": "Redesign the customer self-service portal and migrate existing accounts.",
+      "health": "Green"
+    },
+    {
+      "id": "P2",
+      "name": "Billing System Upgrade",
+      "client": "Contoso Telecom",
+      "description": "Upgrade the billing engine and reconcile invoices before cutover.",
+      "health": "Amber"
+    },
+    {
+      "id": "P3",
+      "name": "Data Centre Migration",
+      "client": "Fabrikam Logistics",
+      "description": "Move on-prem servers to the cloud with minimal downtime.",
+      "health": "Red"
+    }
+  ],
+  "tasks": [
+    {
+      "project_id": "P1",
+      "title": "Confirm portal requirements with client",
+      "role": "BA",
+      "status": "Done",
+      "priority": "High",
+      "due_date": "2026-11-20",
+      "assignee": "Aiman",
+      "blocked": false,
+      "blocker_note": ""
+    },
+    {
+      "project_id": "P1",
+      "title": "Build login and profile pages",
+      "role": "Dev",
+      "status": "In Progress",
+      "priority": "High",
+      "due_date": "2026-12-04",
+      "assignee": "Wei Jie",
+      "blocked": false,
+      "blocker_note": ""
+    },
+    {
+      "project_id": "P1",
+      "title": "Prepare UAT test cases",
+      "role": "QA",
+      "status": "To Do",
+      "priority": "Medium",
+      "due_date": "2026-12-10",
+      "assignee": "Priya",
+      "blocked": false,
+      "blocker_note": ""
+    },
+    {
+      "project_id": "P2",
+      "title": "Map old invoice fields to new billing engine",
+      "role": "BA",
+      "status": "In Progress",
+      "priority": "High",
+      "due_date": "2026-11-30",
+      "assignee": "Aiman",
+      "blocked": false,
+      "blocker_note": ""
+    },
+    {
+      "project_id": "P2",
+      "title": "Run invoice reconciliation on sample month",
+      "role": "Dev",
+      "status": "Pending Review",
+      "priority": "Medium",
+      "due_date": "2026-12-02",
+      "assignee": "Daniel",
+      "blocked": false,
+      "blocker_note": ""
+    },
+    {
+      "project_id": "P2",
+      "title": "Get production data extract from client",
+      "role": "Infra",
+      "status": "To Do",
+      "priority": "High",
+      "due_date": "2026-12-05",
+      "assignee": "Hafiz",
+      "blocked": true,
+      "blocker_note": "Waiting for client security approval."
+    },
+    {
+      "project_id": "P3",
+      "title": "Finalise cutover plan",
+      "role": "Infra",
+      "status": "In Progress",
+      "priority": "High",
+      "due_date": "2026-12-01",
+      "assignee": "Hafiz",
+      "blocked": true,
+      "blocker_note": "Cloud account access not yet provided."
+    },
+    {
+      "project_id": "P3",
+      "title": "Rehearse failover in test environment",
+      "role": "QA",
+      "status": "To Do",
+      "priority": "Low",
+      "due_date": "2026-12-15",
+      "assignee": "Priya",
+      "blocked": false,
+      "blocker_note": ""
+    }
+  ],
+  "meetings": [
+    {
+      "project_id": "P2",
+      "title": "Billing Upgrade Weekly Sync",
+      "date": "2026-11-20",
+      "attendees": ["Aiman", "Daniel", "Hafiz", "Priya"],
+      "transcript": "Aiman: Field mapping is about 60 percent done. The remaining fields depend on the client confirming the tax rules.\nDaniel: Reconciliation on the sample month is ready for review. Two invoices had rounding differences.\nHafiz: We still don't have approval to receive the production extract. I'll chase the client security team today.\nPriya: I can start preparing test cases once the mapping is signed off.",
+      "summary": [
+        {
+          "no": 1,
+          "topic": "Field mapping",
+          "details": "About 60 percent complete. Remaining fields wait on client tax rule confirmation.",
+          "action_items": "Aiman to get tax rules confirmed by client."
+        },
+        {
+          "no": 2,
+          "topic": "Reconciliation",
+          "details": "Sample month done. Two invoices show rounding differences.",
+          "action_items": "Daniel to investigate rounding differences."
+        },
+        {
+          "no": 3,
+          "topic": "Production data extract",
+          "details": "Blocked by pending client security approval.",
+          "action_items": "Hafiz to chase client security team."
+        }
+      ]
+    }
+  ]
+}

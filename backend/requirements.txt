@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic>=2
+psycopg[binary]
+httpx
+python-dotenv
+python-multipart
+python-docx
+openpyxl
+google-genai
+pytest
