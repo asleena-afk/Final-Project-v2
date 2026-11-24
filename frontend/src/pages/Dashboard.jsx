@@ -5,7 +5,7 @@ import { AlertOctagon, AlarmClock, CheckCircle2, FolderKanban, ListTodo } from "
 import Agenda from "../components/Agenda";
 import TaskOpener from "../components/TaskOpener";
 import { Empty, ErrorText, HealthDot, Progress } from "../components/Bits";
-import { api } from "../api";
+import { api, subscribeTaskChanges } from "../api";
 import { STATUSES, STATUS_COLOR, accent } from "../constants";
 import { useSession } from "../session";
 
@@ -16,7 +16,11 @@ export default function Dashboard() {
   const [open, setOpen] = useState(null);
   const [mineOnly, setMineOnly] = useState(false);
   const load = () => api.get("/dashboard").then(setD).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, [me?.id]);
+  useEffect(() => {
+    load();
+    const unsubscribe = subscribeTaskChanges(load);
+    return unsubscribe;
+  }, [me?.id]);
 
   if (error) return <ErrorText error={error} />;
   if (!d) return <p className="muted">Loading…</p>;
@@ -65,7 +69,7 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-        <Agenda onOpen={setOpen} />
+        <Agenda onOpen={setOpen} myProjectsOnly={on} />
       </div>
       {open && <TaskOpener taskId={open} onClose={() => setOpen(null)} onChanged={load} />}
     </>

@@ -4,7 +4,7 @@ import { BarChart3, CalendarDays, FolderKanban, History, LayoutDashboard, LogIn,
 import Logo from "./Logo";
 import { Avatar } from "./Bits";
 import { useSession } from "../session";
-import { api } from "../api";
+import { api, subscribeTaskChanges } from "../api";
 import { accent } from "../constants";
 
 export default function Layout() {
@@ -17,7 +17,10 @@ export default function Layout() {
   useEffect(() => { api.get("/projects").then(setProjects).catch(() => {}); }, [signedIn, me?.id]);
   useEffect(() => {
     if (!signedIn) return setAgenda(null);
-    api.get("/agenda?scope=mine&days=1").then(setAgenda).catch(() => {});
+    const load = () => api.get("/agenda?scope=mine&days=1").then(setAgenda).catch(() => {});
+    load();
+    const unsubscribe = subscribeTaskChanges(load);
+    return unsubscribe;
   }, [signedIn]);
   const dueNow = agenda ? agenda.overdue.length + agenda.due_today.length : 0;
   const link = (to, Icon, label, extra) => (

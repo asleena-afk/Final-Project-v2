@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, CalendarClock, NotebookText } from "lucide-react";
 import { Empty } from "./Bits";
-import { api } from "../api";
+import { api, subscribeTaskChanges } from "../api";
 import { useSession } from "../session";
 import { STATUS_COLOR } from "../constants";
 import { fmtDay } from "../util";
@@ -19,12 +19,19 @@ function Item({ t, onOpen }) {
 }
 
 // The "Today" card: my overdue, due-today and upcoming tasks (everyone's when not signed in). Click a task to open it.
-export default function Agenda({ onOpen, days = 14 }) {
+export default function Agenda({ onOpen, days = 14, myProjectsOnly = false }) {
   const { signedIn } = useSession();
   const [scope, setScope] = useState("mine");
   const [a, setA] = useState(null);
-  const effective = signedIn ? scope : "all";
-  useEffect(() => { api.get(`/agenda?scope=${effective}&days=${days}`).then(setA).catch(() => setA(null)); }, [effective, days]);
+  const effective = signedIn
+    ? (scope === "mine" ? "mine" : (myProjectsOnly ? "my_projects" : "all"))
+    : "all";
+  useEffect(() => {
+    const load = () => api.get(`/agenda?scope=${effective}&days=${days}`).then(setA).catch(() => setA(null));
+    load();
+    const unsubscribe = subscribeTaskChanges(load);
+    return unsubscribe;
+  }, [effective, days]);
   if (!a) return <div className="card"><h2>Today</h2><Empty>Loading…</Empty></div>;
   const none = !a.overdue.length && !a.due_today.length && !a.upcoming.length;
   return (

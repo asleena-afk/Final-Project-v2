@@ -1,6 +1,16 @@
 import { supabase } from "./supabase";
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+export const TASK_CHANGED_EVENT = "task-changed";
+
+export function subscribeTaskChanges(listener) {
+  window.addEventListener(TASK_CHANGED_EVENT, listener);
+  return () => window.removeEventListener(TASK_CHANGED_EVENT, listener);
+}
+
+function notifyTaskChanged() {
+  window.dispatchEvent(new Event(TASK_CHANGED_EVENT));
+}
 
 function message(data, status) {
   const d = data && data.detail;
@@ -46,10 +56,22 @@ async function request(path, { method = "GET", body, form, blob } = {}) {
 
 export const api = {
   get: (p) => request(p),
-  post: (p, body) => request(p, { method: "POST", body }),
+  async post(p, body) {
+    const result = await request(p, { method: "POST", body });
+    if (p === "/tasks" || /^\/tasks\/[^/]+\/restore$/.test(p)) notifyTaskChanged();
+    return result;
+  },
   put: (p, body) => request(p, { method: "PUT", body }),
-  patch: (p, body) => request(p, { method: "PATCH", body }),
-  del: (p) => request(p, { method: "DELETE" }),
+  async patch(p, body) {
+    const result = await request(p, { method: "PATCH", body });
+    if (/^\/tasks\/[^/]+$/.test(p)) notifyTaskChanged();
+    return result;
+  },
+  async del(p) {
+    const result = await request(p, { method: "DELETE" });
+    if (/^\/tasks\/[^/]+/.test(p)) notifyTaskChanged();
+    return result;
+  },
   upload: (p, form) => request(p, { method: "POST", form }),
   async download(p, filename) {
     const blob = await request(p, { blob: true });

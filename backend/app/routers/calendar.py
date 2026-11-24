@@ -72,18 +72,23 @@ def calendar(
 
 @router.get("/agenda")
 def agenda(
-    scope: Literal["mine", "all"] = "mine",
+    scope: Literal["mine", "all", "my_projects"] = "mine",
     days: int = Query(14, ge=1, le=60),
     user: User | None = Depends(optional_user),
     db=Depends(get_db),
 ):
-    """The 'Today' card: overdue, due today and coming up, for open tasks. scope=mine is assigned to me."""
+    """Today card tasks. mine=assigned to me; my_projects=every task in projects I belong to."""
     today = db.execute("select current_date as d").fetchone()["d"]
     sql, args = TASK_ITEM + " and t.status <> 'done' and t.due_date <= current_date + %s", [days]
     if scope == "mine":
         if user is None:
             return {"today": today, "overdue": [], "due_today": [], "upcoming": [], "meetings": []}
         sql += " and t.assignee_id=%s"; args.append(user.id)
+    elif scope == "my_projects":
+        if user is None:
+            return {"today": today, "overdue": [], "due_today": [], "upcoming": [], "meetings": []}
+        sql += " and t.project_id in (select project_id from project_members where user_id=%s)"
+        args.append(user.id)
     rows = _mark(db.execute(sql + " order by t.due_date, t.title limit 300", args).fetchall(), user)
     from datetime import timedelta
     return {
