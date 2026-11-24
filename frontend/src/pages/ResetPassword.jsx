@@ -4,7 +4,7 @@ import { ErrorText } from "../components/Bits";
 import { supabase } from "../supabase";
 import { useSession } from "../session";
 
-// Opened from the link in the reset email: Supabase signs the person in for recovery, then they pick a new password.
+// Opened from the link in an invitation or reset email: Supabase signs the person in, then they pick a password.
 export default function ResetPassword() {
   const { signedIn, clearRecovery } = useSession();
   const nav = useNavigate();
@@ -19,8 +19,8 @@ export default function ResetPassword() {
   return (
     <div className="login-form" style={{ minHeight: "100vh" }}>
       <form onSubmit={submit}>
-        <h1>Choose a new password</h1>
-        {!signedIn && <p className="muted">Open this page from the link in your reset email.</p>}
+        <h1>Set your password</h1>
+        {!signedIn && <p className="muted">Open this page from the link in your invitation or reset email.</p>}
         <label>New password<input type="password" minLength={6} value={pw} onChange={(e) => setPw(e.target.value)} required /></label>
         <ErrorText error={error} />
         <button className="btn primary" disabled={!signedIn} style={{ justifyContent: "center" }}>Save password</button>

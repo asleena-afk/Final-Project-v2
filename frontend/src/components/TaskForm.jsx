@@ -5,18 +5,18 @@ import { api } from "../api";
 import { PRIORITIES, STAGES, STAGE_TO_STATUS, STATUSES } from "../constants";
 import { changed } from "../util";
 
-const FIELDS = ["title", "notes", "status", "priority", "due_date", "assignee_id", "is_blocked", "blocker_reason",
+const FIELDS = ["title", "notes", "status", "priority", "due_date", "due_time", "assignee_id", "is_blocked", "blocker_reason",
   "ticket_ref", "module", "estimate_hrs", "ticket_stage"];
 const MEMBER_FIELDS = ["status", "is_blocked", "blocker_reason", "notes", "ticket_stage"];
 
 // Create (any member) or edit. A member editing a task assigned to them can only touch the MEMBER_FIELDS.
-export default function TaskForm({ projectId, members, task, onSaved, onClose }) {
+export default function TaskForm({ projectId, members, task, initial, projectOptions, onProjectChange, onSaved, onClose }) {
   const editing = Boolean(task);
   const full = !editing || task.perms.edit_all;
   const [f, setF] = useState(() => ({
-    title: "", notes: "", status: "todo", priority: "medium", due_date: "", assignee_id: "", is_blocked: false,
+    title: "", notes: "", status: "todo", priority: "medium", due_date: "", due_time: "", assignee_id: "", is_blocked: false,
     blocker_reason: "", ticket_ref: "", module: "", estimate_hrs: "", ticket_stage: "",
-    ...Object.fromEntries(Object.entries(task || {}).filter(([k]) => FIELDS.includes(k)).map(([k, v]) => [k, v ?? ""])),
+    ...Object.fromEntries(Object.entries({ ...(initial || {}), ...(task || {}) }).filter(([k]) => FIELDS.includes(k)).map(([k, v]) => [k, v ?? ""])),
   }));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,6 +52,13 @@ export default function TaskForm({ projectId, members, task, onSaved, onClose })
       <form onSubmit={save}>
         {!full && <p className="hint">This task is assigned to you. You can change its status, ticket stage, blocker and notes. The project manager edits everything else.</p>}
         <div className="form-grid">
+          {!editing && projectOptions?.length > 1 && (
+            <label className="span2">Project
+              <select value={projectId} onChange={(e) => onProjectChange?.(e.target.value)}>
+                {projectOptions.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+              </select>
+            </label>
+          )}
           <label className="span2">Title<input value={f.title} disabled={!can("title")} maxLength={160} onChange={(e) => set("title", e.target.value)} autoFocus /></label>
           <label>Assignee
             <select value={f.assignee_id} disabled={!can("assignee_id")} onChange={(e) => set("assignee_id", e.target.value)}>
@@ -60,6 +67,7 @@ export default function TaskForm({ projectId, members, task, onSaved, onClose })
             </select>
           </label>
           <label>Due date<input type="date" value={f.due_date || ""} disabled={!can("due_date")} onChange={(e) => set("due_date", e.target.value)} /></label>
+          <label>Due time<input type="time" value={f.due_time || ""} disabled={!can("due_time")} onChange={(e) => set("due_time", e.target.value)} /></label>
           <label>Ticket stage
             <select value={f.ticket_stage} disabled={!can("ticket_stage")} onChange={(e) => onStage(e.target.value)}>
               <option value="">— none —</option>{STAGES.map((s) => <option key={s}>{s}</option>)}

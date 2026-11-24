@@ -17,6 +17,40 @@ function NameList({ label, names, onChange }) {
   );
 }
 
+// Half-hour slots from 6.00am to 10.00pm, written like "2.30pm".
+const SLOTS = (() => {
+  const out = [];
+  for (let m = 6 * 60; m <= 22 * 60; m += 30) {
+    const h = Math.floor(m / 60), mm = m % 60;
+    out.push(`${h % 12 || 12}.${String(mm).padStart(2, "0")}${h < 12 ? "am" : "pm"}`);
+  }
+  return out;
+})();
+
+// Start and end dropdowns that save one text value: "2.30pm - 3.30pm".
+function TimeRange({ value, onChange }) {
+  const [a, b] = (value || "").split(" - ");
+  const known = SLOTS.includes(a) && SLOTS.includes(b);
+  const start = known ? a : "", end = known ? b : "";
+  const setStart = (ns) => {
+    if (!ns) return onChange("");
+    const i = SLOTS.indexOf(ns);
+    const keep = end && SLOTS.indexOf(end) > i ? end : SLOTS[Math.min(i + 2, SLOTS.length - 1)];
+    onChange(`${ns} - ${keep}`);
+  };
+  return (
+    <div>
+      <div className="row">
+        <label className="grow">Start<select value={start} onChange={(e) => setStart(e.target.value)}>
+          <option value="">No time</option>{SLOTS.slice(0, -1).map((t) => <option key={t}>{t}</option>)}</select></label>
+        <label className="grow">End<select value={end} disabled={!start} onChange={(e) => onChange(`${start} - ${e.target.value}`)}>
+          {!start && <option value="">—</option>}{SLOTS.slice(SLOTS.indexOf(start) + 1).map((t) => <option key={t}>{t}</option>)}</select></label>
+      </div>
+      {value && !known && <div className="small muted">Previously entered: “{value}”. Pick a start and end time to replace it.</div>}
+    </div>
+  );
+}
+
 export default function MeetingDetail() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -29,6 +63,8 @@ export default function MeetingDetail() {
   const [members, setMembers] = useState([]);
   const [picked, setPicked] = useState({});
   const [assign, setAssign] = useState({});
+  const [editingAction, setEditingAction] = useState(null);
+  const [editActionText, setEditActionText] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -63,16 +99,93 @@ export default function MeetingDetail() {
   });
   const remove = () => window.confirm("Delete this meeting? Tasks already created from it stay.") && run("del", async () => { await api.del(`/meetings/${id}`); nav("/meetings"); });
   const makeTasks = () => run("tasks", async () => {
-    const chosen = Object.entries(picked).filter(([, v]) => v).map(([k]) => k);
-    for (const key of chosen) {
-      const [title, assignee] = key.split("||");
-      await api.post("/tasks", { project_id: m.project_id, meeting_id: m.id, title: title.slice(0, 160), assignee_id: assignee || null });
+    const chosen = Object.entries(picked).filter(([, selected]) => selected).map(([title]) => title);
+    for (const title of chosen) {
+      await api.post("/tasks", {
+        project_id: m.project_id,
+        meeting_id: m.id,
+        title: title.slice(0, 160),
+        assignee_id: assign[title] || null,
+      });
     }
     setPicked({}); apply(await api.get(`/meetings/${id}`)); setInfo(`${chosen.length} task(s) created.`);
   });
 
-  const actions = (m.summary_rows || []).flatMap((r) => (r.action_items || []).map((a) => ({ text: a, topic: r.topic })))
-    .concat((m.next_actions || []).map((a) => ({ text: a, topic: "Next action" })));
+  const saveActionChanges = (summaryRows, nextActions) => run("actions", async () => {
+    const updated = await api.put(`/meetings/${id}`, {
+      ...body(),
+      summary_rows: summaryRows,
+      next_actions: nextActions,
+    });
+    apply(updated);
+  });
+
+  const startEditAction = () => {
+    const selected = Object.entries(picked).filter(([, selected]) => selected).map(([text]) => text);
+    if (selected.length !== 1) return;
+    setEditingAction(selected[0]);
+    setEditActionText(selected[0]);
+  };
+
+  const saveEditedAction = () => {
+    const replacement = editActionText.trim();
+    if (!editingAction || !replacement) return;
+    const oldKey = editingAction.trim().toLowerCase();
+    const summaryRows = (m.summary_rows || []).map((row) => ({
+      ...row,
+      action_items: (row.action_items || []).map((text) =>
+        text.trim().toLowerCase() === oldKey ? replacement : text
+      ),
+    }));
+    const nextActions = (m.next_actions || []).map((text) =>
+      text.trim().toLowerCase() === oldKey ? replacement : text
+    );
+    setPicked((current) => ({
+      ...Object.fromEntries(Object.entries(current).filter(([text]) => text !== editingAction)),
+      [replacement]: true,
+    }));
+    setEditingAction(null);
+    setEditActionText("");
+    saveActionChanges(summaryRows, nextActions);
+  };
+
+  const deleteSelectedActions = () => {
+    const selected = new Set(
+      Object.entries(picked)
+        .filter(([, checked]) => checked)
+        .map(([text]) => text.trim().toLowerCase())
+    );
+    if (!selected.size) return;
+    if (!window.confirm(`Delete ${selected.size} selected action item${selected.size === 1 ? "" : "s"}?`)) return;
+    const summaryRows = (m.summary_rows || []).map((row) => ({
+      ...row,
+      action_items: (row.action_items || []).filter(
+        (text) => !selected.has(text.trim().toLowerCase())
+      ),
+    }));
+    const nextActions = (m.next_actions || []).filter(
+      (text) => !selected.has(text.trim().toLowerCase())
+    );
+    setPicked({});
+    setAssign({});
+    setEditingAction(null);
+    saveActionChanges(summaryRows, nextActions);
+  };
+
+  const actions = (() => {
+    const seen = new Map();
+    (m.summary_rows || []).forEach((row) => {
+      (row.action_items || []).forEach((text) => {
+        const key = text.trim().toLowerCase();
+        if (key && !seen.has(key)) seen.set(key, { text: text.trim(), topic: row.topic });
+      });
+    });
+    (m.next_actions || []).forEach((text) => {
+      const key = text.trim().toLowerCase();
+      if (key && !seen.has(key)) seen.set(key, { text: text.trim(), topic: "Next action" });
+    });
+    return [...seen.values()];
+  })();
 
   return (
     <>
@@ -84,7 +197,7 @@ export default function MeetingDetail() {
         <div className="form-grid">
           <label className="span2">Title<input value={f.title} onChange={(e) => set("title", e.target.value)} /></label>
           <label>Date<input type="date" value={f.meeting_date} onChange={(e) => set("meeting_date", e.target.value)} /></label>
-          <label>Time<input value={f.meeting_time} placeholder="e.g. 2.30pm" onChange={(e) => set("meeting_time", e.target.value)} /></label>
+          <TimeRange value={f.meeting_time} onChange={(v) => set("meeting_time", v)} />
           <label className="span2">Location<input value={f.location} onChange={(e) => set("location", e.target.value)} /></label>
           <NameList label="Internal attendees" names={f.attendees_internal} onChange={(v) => set("attendees_internal", v)} />
           <NameList label="Client attendees" names={f.attendees_client} onChange={(v) => set("attendees_client", v)} />
@@ -109,24 +222,50 @@ export default function MeetingDetail() {
 
       {m.summary_rows && (
         <div className="card">
-          <div className="row"><h2 className="grow" style={{ margin: 0 }}>Summary</h2><button className="btn" onClick={() => api.download(`/meetings/${id}/export`, "meeting-summary.xlsx").catch((e) => setError(e.message))}><Download size={15} /> Download Excel</button></div>
+          <div className="row"><h2 className="grow" style={{ margin: 0 }}>Summary</h2><button className="btn excel-button" onClick={() => api.download(`/meetings/${id}/export`, "meeting-summary.xlsx").catch((e) => setError(e.message))}><Download size={15} /> Download Excel</button></div>
           <div className="table-wrap"><table><thead><tr><th>No.</th><th>Topic</th><th>Details</th><th>Action items</th></tr></thead>
             <tbody>{m.summary_rows.map((r) => <tr key={r.no}><td>{r.no}</td><td><b>{r.topic}</b></td><td style={{ whiteSpace: "pre-wrap" }}>{r.details}</td><td>{(r.action_items || []).map((a, i) => <div key={i}>• {a}</div>)}</td></tr>)}</tbody></table></div>
           {actions.length > 0 && (
             <>
-              <h2 style={{ marginTop: 16 }}>Turn action items into tasks</h2>
+              <div className="row wrap" style={{ marginTop: 16, marginBottom: 8 }}>
+                <h2 className="grow" style={{ margin: 0 }}>Turn action items into tasks</h2>
+              </div>
               {actions.map((a, i) => {
-                const key = `${a.text}||${assign[i] || ""}`;
+                const key = a.text;
                 return (
                   <div key={i} className="row" style={{ marginBottom: 6 }}>
                     <input type="checkbox" checked={!!picked[key]} onChange={(e) => setPicked((p) => ({ ...p, [key]: e.target.checked }))} aria-label={a.text} />
-                    <span className="grow">{a.text} <span className="small muted">({a.topic})</span></span>
-                    <select style={{ width: 190 }} value={assign[i] || ""} onChange={(e) => { setPicked((p) => { const n = { ...p }; delete n[key]; return n; }); setAssign((s) => ({ ...s, [i]: e.target.value })); }}>
+                    {editingAction === key ? (
+                      <input
+                        className="grow"
+                        value={editActionText}
+                        maxLength={160}
+                        onChange={(e) => setEditActionText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveEditedAction();
+                          if (e.key === "Escape") { setEditingAction(null); setEditActionText(""); }
+                        }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span className="grow">{a.text} <span className="small muted">({a.topic})</span></span>
+                    )}
+                    <select style={{ width: 190 }} value={assign[key] || ""} onChange={(e) => setAssign((s) => ({ ...s, [key]: e.target.value }))}>
                       <option value="">Unassigned</option>{members.map((x) => <option key={x.user_id} value={x.user_id}>{x.name} ({x.role})</option>)}</select>
                   </div>
                 );
               })}
-              <button className="btn primary" disabled={busy === "tasks" || !Object.values(picked).some(Boolean)} onClick={makeTasks}>Create selected tasks</button>
+              {editingAction && (
+                <div className="row" style={{ marginBottom: 8 }}>
+                  <button className="btn sm primary" disabled={!editActionText.trim() || busy === "actions"} onClick={saveEditedAction}>Save edit</button>
+                  <button className="btn sm" disabled={busy === "actions"} onClick={() => { setEditingAction(null); setEditActionText(""); }}>Cancel</button>
+                </div>
+              )}
+              <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+                <button className="btn sm" disabled={Object.values(picked).filter(Boolean).length !== 1 || busy === "actions"} onClick={startEditAction}>Edit</button>
+                <button className="btn sm danger" disabled={!Object.values(picked).some(Boolean) || busy === "actions"} onClick={deleteSelectedActions}>Delete selected</button>
+                <button className="btn primary" disabled={busy === "tasks" || !Object.values(picked).some(Boolean)} onClick={makeTasks}>Create selected tasks</button>
+              </div>
             </>
           )}
         </div>

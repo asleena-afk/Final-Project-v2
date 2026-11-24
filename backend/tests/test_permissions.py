@@ -164,7 +164,8 @@ def test_member_management_is_pm_only(world):
     call, pid = world["call"], world["pid"]
     zed = USERS["zed"].email
     assert call("POST", f"/projects/{pid}/members", "dev", json={"email": zed, "role": "Dev"}).status_code == 403
-    assert call("POST", f"/projects/{pid}/members", "pm", json={"email": "nobody@example.com", "role": "Dev"}).status_code == 404
+    # an email with no account is invited instead; without SUPABASE_SERVICE_ROLE_KEY the PM gets a clear "not set up" error
+    assert call("POST", f"/projects/{pid}/members", "pm", json={"email": "nobody@example.com", "role": "Dev"}).status_code == 503
     assert call("POST", f"/projects/{pid}/members", "pm", json={"email": USERS["dev"].email, "role": "Dev"}).status_code == 409
     assert call("POST", f"/projects/{pid}/members", "pm", json={"email": zed, "role": "PM"}).status_code == 422
     assert call("POST", f"/projects/{pid}/members", "pm", json={"email": zed, "role": "Infra"}).status_code == 201

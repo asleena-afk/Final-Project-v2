@@ -3,6 +3,7 @@ from app import config
 from app.activity import diff, ensure_profile, log
 from app.auth import User, optional_user, require_user
 from app.db import get_db
+from app.services import invites
 from app.permissions import (ASSIGNABLE_ROLES, get_project, require_pm, role_of, roles_for)
 from app.schemas.project import MemberIn, MemberRole, ProjectIn
 
@@ -93,7 +94,15 @@ def add_member(pid: str, body: MemberIn, user: User = Depends(require_user), db=
     project = require_pm(db, pid, user)
     person = db.execute("select * from profiles where lower(email)=%s", (body.email.strip().lower(),)).fetchone()
     if person is None:
-        raise HTTPException(404, "No account with that email yet. Ask them to sign up and sign in once, then add them.")
+        # No profile yet: invite them. They are added to the project when they first sign in (see claim_invites).
+        email = body.email.strip().lower()
+        # Save first: if sending fails, the error rolls this row back, so nothing is left half done.
+        db.execute(
+            "insert into pending_invites (project_id,email,role,invited_by) values (%s,%s,%s,%s) "
+            "on conflict (project_id, lower(email)) do update set role=excluded.role",
+            (project["id"], email, body.role, user.id))
+        status = invites.send_invite(email)  # sending again to the same email works as a resend
+        return {"pending": True, "email": email, "role": body.role, "email_sent": status == "sent"}
     if db.execute("select 1 from project_members where project_id=%s and user_id=%s",
                   (project["id"], person["id"])).fetchone():
         raise HTTPException(409, "Already a member of this project")
@@ -139,4 +148,20 @@ def remove_member(pid: str, member_id: str, user: User = Depends(require_user), 
     db.execute("delete from project_members where project_id=%s and user_id=%s", (project["id"], member["user_id"]))
     log(db, project["id"], user, "member_removed", "member", entity_id=member["user_id"], label=member["name"],
         changes={"role": [member["role"], None], "tasks_unassigned": [0, n]} if n else {"role": [member["role"], None]})
+    return Response(status_code=204)
+
+
+# ------------------------------------------------------------------ pending invites (PM only)
+@router.get("/{pid}/invites")
+def list_invites(pid: str, user: User = Depends(require_user), db=Depends(get_db)):
+    project = require_pm(db, pid, user)
+    return db.execute("select id, email, role, created_at from pending_invites where project_id=%s order by created_at",
+                      (project["id"],)).fetchall()
+
+
+@router.delete("/{pid}/invites/{invite_id}", status_code=204)
+def cancel_invite(pid: str, invite_id: str, user: User = Depends(require_user), db=Depends(get_db)):
+    from app.permissions import as_uuid
+    project = require_pm(db, pid, user)
+    db.execute("delete from pending_invites where id=%s and project_id=%s", (as_uuid(invite_id, "Invite"), project["id"]))
     return Response(status_code=204)

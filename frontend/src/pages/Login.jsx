@@ -9,8 +9,8 @@ import { useSession } from "../session";
 export default function Login() {
   const { signedIn, recovery } = useSession();
   const nav = useNavigate();
-  const [mode, setMode] = useState("in"); // in | up | forgot
-  const [f, setF] = useState({ name: "", email: "", password: "" });
+  const [mode, setMode] = useState("in"); // in | forgot  (new people are invited by a PM, there is no public sign-up)
+  const [f, setF] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,11 +29,6 @@ export default function Login() {
         const { error: err } = await supabase.auth.resetPasswordForEmail(f.email, { redirectTo: `${window.location.origin}/reset-password` });
         if (err) throw err;
         setInfo("If that email has an account, a reset link is on its way.");
-      } else if (mode === "up") {
-        if (!f.name.trim()) throw new Error("Please enter your name");
-        const { data, error: err } = await supabase.auth.signUp({ email: f.email, password: f.password, options: { data: { full_name: f.name.trim() } } });
-        if (err) throw err;
-        if (data.session) nav("/"); else setInfo("Account created. Check your email to confirm it, then sign in.");
       } else {
         const { error: err } = await supabase.auth.signInWithPassword({ email: f.email, password: f.password });
         if (err) throw err;
@@ -42,7 +37,7 @@ export default function Login() {
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
 
-  const title = { in: "Welcome back", up: "Create your account", forgot: "Reset your password" }[mode];
+  const title = { in: "Welcome back", forgot: "Reset your password" }[mode];
   return (
     <div className="login-wrap">
       <div className="login-art">
@@ -58,15 +53,14 @@ export default function Login() {
       <div className="login-form">
         <form onSubmit={submit}>
           <h1>{title}</h1>
-          {mode === "up" && <label>Full name<input value={f.name} onChange={(e) => set("name", e.target.value)} autoComplete="name" /></label>}
           <label>Email<input type="email" value={f.email} onChange={(e) => set("email", e.target.value)} autoComplete="email" required /></label>
-          {mode !== "forgot" && <label>Password<input type="password" minLength={6} value={f.password} onChange={(e) => set("password", e.target.value)} autoComplete={mode === "up" ? "new-password" : "current-password"} required /></label>}
+          {mode !== "forgot" && <label>Password<input type="password" minLength={6} value={f.password} onChange={(e) => set("password", e.target.value)} autoComplete="current-password" required /></label>}
           <ErrorText error={error} />
           {info && <p className="ok-text">{info}</p>}
-          <button className="btn primary" disabled={busy} style={{ justifyContent: "center" }}>{busy ? "Please wait…" : { in: "Sign in", up: "Sign up", forgot: "Send reset link" }[mode]}</button>
+          <button className="btn primary" disabled={busy} style={{ justifyContent: "center" }}>{busy ? "Please wait…" : { in: "Sign in", forgot: "Send reset link" }[mode]}</button>
           <div className="row small wrap">
             {mode !== "in" && <a href="#in" onClick={(e) => { e.preventDefault(); setMode("in"); }}>Back to sign in</a>}
-            {mode === "in" && <><a href="#up" onClick={(e) => { e.preventDefault(); setMode("up"); }}>Create an account</a><span className="grow" /><a href="#forgot" onClick={(e) => { e.preventDefault(); setMode("forgot"); }}>Forgot password?</a></>}
+            {mode === "in" && <><span className="muted">Accounts are by invitation from a project manager.</span><span className="grow" /><a href="#forgot" onClick={(e) => { e.preventDefault(); setMode("forgot"); }}>Forgot password?</a></>}
           </div>
           <Link to="/" className="small">Continue without signing in (read-only)</Link>
         </form>

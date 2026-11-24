@@ -24,13 +24,18 @@ members can change things, and what they can change depends on their role. FastA
    `pip install -r requirements.txt` and `uvicorn app.main:app --reload`. API docs at http://localhost:8000/docs.
    `GEMINI_MODEL=gemini-3.8-flash` is already in `.env.example`.
 3. **Frontend.** `cd frontend`, copy `.env.example` to `.env`, `npm install`, `npm run dev`. Open http://localhost:5173.
-4. **First user.** Sign up in the app, then create a project: you become its PM. Teammates sign up themselves; add them by email
-   on the project's **Team** tab and pick a role. Set `PM_EMAILS` in `backend/.env` if only certain people should create projects.
+4. **First user.** There is no public sign-up. Create the first account in Supabase (Authentication > Users > Add user, or Invite user),
+   sign in, then create a project: you become its PM. After that, add people on the project's **Team** tab with their email and a role:
+   - Already has an account in the app: added straight away.
+   - New email: they get an invitation email, set a password from the link, and join the project when they sign in. Pending invitations show on the Team tab and can be cancelled.
+   Set `PM_EMAILS` in `backend/.env` if only certain people should create projects.
+   Invitations need `SUPABASE_SERVICE_ROLE_KEY` in `backend/.env` (server only, never in the frontend) and `APP_URL` set to the frontend address.
+   Also turn off public sign-ups in Supabase (Authentication > Providers > Email > "Allow new users to sign up") so people can only join by invitation.
 5. **Demo data (optional).** `python seed/load_sample_data.py your-email@example.com`. It talks to the database directly with
    `DATABASE_URL`, so it needs no email, password or token. The sample people are not accounts yet, so their tasks are unassigned
    with the intended name in the notes.
 
-In Supabase Auth settings, add your site URL and `http://localhost:5173/reset-password` to the allowed redirect URLs so the forgot-password email works.
+In Supabase Auth settings, add your site URL and `http://localhost:5173/reset-password` to the allowed redirect URLs so the forgot-password and invitation emails work.
 
 ## Tests
 

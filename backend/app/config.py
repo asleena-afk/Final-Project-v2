@@ -11,3 +11,7 @@ CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5
 # Optional safety net: only these emails can create projects (become a PM). Empty = any signed-in user.
 PM_EMAILS = {e.strip().lower() for e in os.getenv("PM_EMAILS", "").split(",") if e.strip()}
 TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Kuala_Lumpur")
+# Needed only to send invitation emails to people who have no account yet. Server-side only: never put this key in the frontend.
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+# Where the invitation email sends people (they set their password there). Defaults to the first CORS origin.
+APP_URL = (os.getenv("APP_URL") or (CORS_ORIGINS[0] if CORS_ORIGINS else "http://localhost:5173")).rstrip("/")

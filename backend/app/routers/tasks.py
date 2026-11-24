@@ -11,7 +11,7 @@ from app.services.stages import STAGE_TO_STATUS, status_for_stage
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
-COLS = ["meeting_id", "assignee_id", "title", "notes", "status", "priority", "due_date", "is_blocked",
+COLS = ["meeting_id", "assignee_id", "title", "notes", "status", "priority", "due_date", "due_time", "is_blocked",
         "blocker_reason", "ticket_ref", "module", "estimate_hrs", "ticket_stage"]
 NOT_NULL = {"title", "notes", "status", "priority", "is_blocked"}
 

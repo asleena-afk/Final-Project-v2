@@ -31,7 +31,7 @@ export default function TaskDrawer({ taskId, onClose, onEdit, onDelete, onRestor
               {task.is_blocked && <span className="pill blocked">Blocked</span>}{task.deleted_at && <span className="pill blocked">In trash</span>}</div>
             {task.is_blocked && <div className="banner warn">Blocker: {task.blocker_reason}</div>}
             <dl className="dl">
-              <dt>Project</dt><dd><Link to={`/projects/${task.project_id}`}>{task.project_name}</Link></dd>
+              <dt>Project</dt><dd><Link to={`/projects/${task.project_id}`} onClick={onClose}>{task.project_name}</Link></dd>
               <dt>Assignee</dt><dd>{task.assignee_name ? <span className="row"><Avatar name={task.assignee_name} /> {task.assignee_name} {task.assignee_role && <RoleTag role={task.assignee_role} />}</span> : "Unassigned"}</dd>
               <dt>Due</dt><dd className={isOverdue(task) ? "overdue" : ""}>{fmtDate(task.due_date)}{isOverdue(task) && " (overdue)"}</dd>
               <dt>Ticket stage</dt><dd>{task.ticket_stage || "—"}</dd>

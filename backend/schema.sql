@@ -73,6 +73,7 @@ create table if not exists tt2.tasks (
   status text not null default 'todo' check (status in ('todo','in_progress','pending_review','done')),
   priority text not null default 'medium' check (priority in ('high','medium','low')),
   due_date date,
+  due_time text check (due_time is null or char_length(due_time) <= 20),
   is_blocked boolean not null default false,
   blocker_reason text check (blocker_reason is null or char_length(blocker_reason) <= 300),
   ticket_ref text check (ticket_ref is null or char_length(ticket_ref) <= 40),
@@ -116,6 +117,20 @@ create table if not exists tt2.activity_log (
 create index if not exists activity_project_idx on tt2.activity_log(project_id, created_at desc);
 create index if not exists activity_task_idx on tt2.activity_log(task_id, created_at desc);
 
+-- ---------------------------------------------------------------- pending invites
+-- A PM invites an email that has no account yet. When that person first signs in (GET /me),
+-- the backend turns the row into a real project_members row and deletes it.
+create table if not exists tt2.pending_invites (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references tt2.projects(id) on delete cascade,
+  email text not null,
+  role text not null check (role in ('BA','Dev','QA','Infra')),
+  invited_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists pending_invites_project_email on tt2.pending_invites (project_id, lower(email));
+create index if not exists pending_invites_email_idx on tt2.pending_invites (lower(email));
+
 -- ---------------------------------------------------------------- security
 -- The backend uses a server connection and checks roles itself (same pattern as v1 and Chapter 16).
 -- RLS stays on with no policies, and the browser roles get nothing, so the Supabase Data API cannot read these tables.
@@ -125,6 +140,7 @@ alter table tt2.project_members enable row level security;
 alter table tt2.meetings enable row level security;
 alter table tt2.tasks enable row level security;
 alter table tt2.activity_log enable row level security;
+alter table tt2.pending_invites enable row level security;
 
 do $$
 begin

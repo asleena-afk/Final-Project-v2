@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from app import config
-from app.activity import ensure_profile
+from app.activity import claim_invites, ensure_profile
 from app.auth import User, require_user
 from app.db import get_db
 from app.permissions import roles_for
@@ -24,7 +24,9 @@ def _me(db, user: User, profile: dict) -> dict:
 @router.get("/me")
 def me(user: User = Depends(require_user), db=Depends(get_db)):
     """Call this after sign-in: it also creates the profile so a PM can add this person by email."""
-    return _me(db, user, ensure_profile(db, user))
+    profile = ensure_profile(db, user)
+    claim_invites(db, user, profile)  # invited by a PM? you are added to those projects now
+    return _me(db, user, profile)
 
 
 @router.put("/me")

@@ -1,4 +1,5 @@
 """Calendar and 'my day' agenda. Built from task due dates and meeting dates, so there is nothing extra to store."""
+import re
 from datetime import date
 from typing import Literal
 
@@ -9,7 +10,7 @@ from app.db import get_db
 router = APIRouter(tags=["calendar"])
 
 TASK_ITEM = """
-select t.id, t.project_id, p.name as project_name, t.title, t.due_date, t.status, t.priority, t.is_blocked,
+select t.id, t.project_id, p.name as project_name, t.title, t.due_date, t.due_time, t.status, t.priority, t.is_blocked,
        t.assignee_id, a.name as assignee_name, t.ticket_ref
 from tasks t
 join projects p on p.id = t.project_id
@@ -25,6 +26,15 @@ def _mark(rows, user: User | None):
     return rows
 
 
+def _start_minutes(text: str | None) -> int:
+    """Minutes since midnight for the start of "2.30pm - 3.30pm" (or "2.30pm"). Unreadable or empty sorts last."""
+    m = re.match(r"\s*(\d{1,2})(?:[.:](\d{2}))?\s*([ap]m)", (text or "").lower())
+    if not m:
+        return 24 * 60
+    h, mm, ap = int(m.group(1)) % 12, int(m.group(2) or 0), m.group(3)
+    return (h + (12 if ap == "pm" else 0)) * 60 + mm
+
+
 def _meetings(db, user: User | None, start: date, end: date):
     """Meetings are private to the PM, so only a PM gets them, and only for projects they own."""
     if user is None:
@@ -36,6 +46,7 @@ def _meetings(db, user: User | None, start: date, end: date):
         (user.id, start, end)).fetchall()
     for r in rows:
         r["type"] = "meeting"
+    rows.sort(key=lambda r: (r["meeting_date"], _start_minutes(r.get("meeting_time"))))
     return rows
 
 

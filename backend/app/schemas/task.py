@@ -20,6 +20,7 @@ class TaskCreate(BaseModel):
     status: Status = "todo"
     priority: Priority = "medium"
     due_date: date | None = None
+    due_time: str | None = Field(default=None, max_length=20)
     assignee_id: UUID | None = None
     is_blocked: bool = False
     blocker_reason: str | None = Field(default=None, max_length=300)
@@ -39,6 +40,7 @@ class TaskPatch(BaseModel):
     status: Status | None = None
     priority: Priority | None = None
     due_date: date | None = None
+    due_time: str | None = None
     assignee_id: UUID | None = None
     is_blocked: bool | None = None
     blocker_reason: str | None = Field(default=None, max_length=300)

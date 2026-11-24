@@ -12,6 +12,7 @@ export default function Layout() {
   const [projects, setProjects] = useState([]);
   const [agenda, setAgenda] = useState(null);
   const isPm = me?.is_pm;
+  const myProjects = signedIn ? projects.filter((project) => project.my_role) : [];
 
   useEffect(() => { api.get("/projects").then(setProjects).catch(() => {}); }, [signedIn, me?.id]);
   useEffect(() => {
@@ -31,22 +32,22 @@ export default function Layout() {
         <div className="logo"><Logo /> Task Meeting Tracker</div>
         {link("/", LayoutDashboard, "Dashboard")}
         {link("/calendar", CalendarDays, "Calendar", dueNow > 0 && <span className="nav-badge" title="Due today or overdue">{dueNow}</span>)}
+        {link("/projects", FolderKanban, "All Projects")}
         {link("/team", Users, "Team")}
         {isPm && link("/meetings", NotebookText, "Meetings")}
         {signedIn && link("/logs", History, "Logs")}
         {link("/reports", BarChart3, "Reports")}
-        <div className="nav-group">Projects</div>
-        {projects.map((p) => (
-          <NavLink key={p.id} to={`/projects/${p.id}`} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
+        <div className="nav-group">My Projects</div>
+        {myProjects.map((p) => (
+          <NavLink key={p.id} to={`/projects/${p.id}`} className={({ isActive }) => `nav-link sidebar-project-title${isActive ? " active" : ""}`}>
             <span className="nav-dot" style={{ background: accent(p.name) }} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
           </NavLink>
         ))}
-        {projects.length === 0 && <span className="small" style={{ padding: "4px 10px" }}>No projects yet</span>}
-        {link("/projects", FolderKanban, "All projects")}
+        {signedIn && myProjects.length === 0 && <span className="small" style={{ padding: "4px 10px" }}>No projects yet</span>}
         <div className="side-foot">
           {signedIn ? (
             <>
-              <div className="row"><Avatar name={me?.name || "?"} /><div><div style={{ color: "#fff", fontWeight: 600 }}>{me?.name || "Signed in"}</div><div className="small">{isPm ? "Project manager" : "Team member"}</div></div></div>
+              <NavLink to="/profile" className="row profile-link" title="My profile"><Avatar name={me?.name || "?"} /><div><div style={{ color: "#fff", fontWeight: 600 }}>{me?.name || "Signed in"}</div><div className="small">{isPm ? "Project manager" : "Team member"} · My profile</div></div></NavLink>
               <button className="btn" onClick={signOut}><LogOut size={16} /> Sign out</button>
             </>
           ) : (

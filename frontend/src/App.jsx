@@ -11,6 +11,7 @@ import Logs from "./pages/Logs";
 import Meetings from "./pages/Meetings";
 import MeetingDetail from "./pages/MeetingDetail";
 import Reports from "./pages/Reports";
+import Profile from "./pages/Profile";
 import { useSession } from "./session";
 
 // Pages for members only send visitors to sign in.
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="team" element={<Team />} />
         <Route path="calendar" element={<Calendar />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="profile" element={<Private><Profile /></Private>} />
         <Route path="logs" element={<Private><Logs /></Private>} />
         <Route path="meetings" element={<Private><Meetings /></Private>} />
         <Route path="meetings/:id" element={<Private><MeetingDetail /></Private>} />

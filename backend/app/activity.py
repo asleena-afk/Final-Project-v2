@@ -45,3 +45,14 @@ def ensure_profile(db, user: User) -> dict:
         (user.id, user.email, user.name),
     )
     return db.execute("select * from profiles where id=%s", (user.id,)).fetchone()
+
+
+def claim_invites(db, user: User, profile: dict) -> None:
+    """Turn invitations sent to this email into real memberships. Runs on GET /me, so it happens at first sign-in."""
+    rows = db.execute("select id, project_id, role from pending_invites where lower(email)=%s", (user.email.lower(),)).fetchall()
+    for r in rows:
+        db.execute("insert into project_members (project_id,user_id,role) values (%s,%s,%s) on conflict do nothing",
+                   (r["project_id"], user.id, r["role"]))
+        log(db, r["project_id"], user, "member_added", "member", entity_id=user.id, label=profile["name"],
+            changes={"role": [None, r["role"]]})
+        db.execute("delete from pending_invites where id=%s", (r["id"],))
