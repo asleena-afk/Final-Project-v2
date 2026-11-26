@@ -101,7 +101,9 @@ def add_member(pid: str, body: MemberIn, user: User = Depends(require_user), db=
             "insert into pending_invites (project_id,email,role,invited_by) values (%s,%s,%s,%s) "
             "on conflict (project_id, lower(email)) do update set role=excluded.role",
             (project["id"], email, body.role, user.id))
-        status = invites.send_invite(email)  # sending again to the same email works as a resend
+        pm = db.execute("select name from profiles where id=%s", (user.id,)).fetchone()
+        status = invites.send_invite(  # sending again to the same email works as a resend
+            email, inviter=(pm["name"] if pm else user.name), project=project["name"], role=body.role)
         return {"pending": True, "email": email, "role": body.role, "email_sent": status == "sent"}
     if db.execute("select 1 from project_members where project_id=%s and user_id=%s",
                   (project["id"], person["id"])).fetchone():

@@ -1,0 +1,8 @@
+<!-- Supabase > Authentication > Emails > Templates > "Invite user".
+     Subject:  {{ .Data.invited_by }} invited you to {{ .Data.project_name }} on Task Meeting Tracker
+     Paste everything below this comment into the message body. -->
+<h2>You have been invited</h2>
+<p><b>{{ .Data.invited_by }}</b> invited you to join <b>{{ .Data.project_name }}</b> as <b>{{ .Data.invited_role }}</b> on Task Meeting Tracker.</p>
+<p>Click the link below to set your password and sign in. You will see the project as soon as you are in.</p>
+<p><a href="{{ .ConfirmationURL }}">Accept the invitation and set my password</a></p>
+<p>If you were not expecting this, you can ignore this email.</p>

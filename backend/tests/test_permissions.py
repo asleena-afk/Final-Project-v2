@@ -215,7 +215,7 @@ def test_deleted_tasks_do_not_count_on_dashboard(world):
 
 def test_dashboard_my_tasks_scope_only_counts_assigned_tasks(world):
     call = world["call"]
-    new_task(world, assignee_id=USERS["dev"].id, is_blocked=True, due_date="2000-01-01")
+    new_task(world, assignee_id=USERS["dev"].id, is_blocked=True, blocker_reason="Waiting for client", due_date="2000-01-01")
     new_task(world, assignee_id=USERS["qa"].id)
     new_task(world)
 

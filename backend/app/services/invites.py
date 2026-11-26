@@ -4,10 +4,12 @@ from fastapi import HTTPException
 from app import config
 
 
-def send_invite(email: str) -> str:
+def send_invite(email: str, inviter: str = "", project: str = "", role: str = "") -> str:
     """Returns "sent" (new account, email on its way) or "exists" (they already have a login).
 
     Needs SUPABASE_SERVICE_ROLE_KEY in the backend .env.
+    The inviter, project and role are stored on the new login as metadata. The Supabase "Invite user" email
+    template shows them as {{ .Data.invited_by }}, {{ .Data.project_name }} and {{ .Data.invited_role }}.
     """
     if not config.SUPABASE_URL or not config.SUPABASE_SERVICE_ROLE_KEY:
         raise HTTPException(503, "Invitations are not set up yet: add SUPABASE_SERVICE_ROLE_KEY to backend/.env")
@@ -17,7 +19,7 @@ def send_invite(email: str) -> str:
             f"{config.SUPABASE_URL}/auth/v1/invite",
             params={"redirect_to": f"{config.APP_URL}/reset-password"},
             headers={"apikey": key, "Authorization": f"Bearer {key}"},
-            json={"email": email},
+            json={"email": email, "data": {"invited_by": inviter, "project_name": project, "invited_role": role}},
             timeout=15,
         )
     except httpx.HTTPError:

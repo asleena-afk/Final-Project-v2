@@ -8,7 +8,7 @@ from conftest import TEST_URL, USERS
 @pytest.fixture
 def sent(monkeypatch):
     calls = []
-    monkeypatch.setattr(invites, "send_invite", lambda email: calls.append(email) or "sent")
+    monkeypatch.setattr(invites, "send_invite", lambda email, **kw: calls.append(email) or "sent")
     return calls
 
 
@@ -73,9 +73,33 @@ def test_failed_send_leaves_nothing_behind(world, monkeypatch):
     from fastapi import HTTPException
     call, pid = world["call"], world["pid"]
 
-    def boom(email):
+    def boom(email, **kw):
         raise HTTPException(503, "Invitations are not set up yet")
     monkeypatch.setattr(invites, "send_invite", boom)
     r = call("POST", f"/projects/{pid}/members", "pm", json={"email": "late@example.com", "role": "Dev"})
     assert r.status_code == 503
     assert call("GET", f"/projects/{pid}/invites", "pm").json() == []
+
+
+def test_invite_carries_the_pm_name_project_and_role(world, monkeypatch):
+    """The invitation email can say who invited them, to which project, and as what."""
+    import httpx
+    from app import config
+    seen = {}
+
+    class Reply:
+        status_code = 200
+
+    def fake_post(url, **kw):
+        seen["url"], seen["json"] = url, kw["json"]
+        return Reply()
+
+    monkeypatch.setattr(config, "SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.setattr(config, "SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    monkeypatch.setattr(httpx, "post", fake_post)
+    call, pid = world["call"], world["pid"]
+    r = call("POST", f"/projects/{pid}/members", "pm", json={"email": "fresh@example.com", "role": "QA"})
+    assert r.status_code == 201 and r.json()["email_sent"] is True
+    assert seen["url"].endswith("/auth/v1/invite")
+    assert seen["json"] == {"email": "fresh@example.com",
+                            "data": {"invited_by": "Pm", "project_name": "Collections Upgrade", "invited_role": "QA"}}

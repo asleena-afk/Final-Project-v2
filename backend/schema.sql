@@ -34,6 +34,7 @@ create index if not exists projects_owner_idx on tt2.projects(owner_id);
 create table if not exists tt2.project_members (
   project_id uuid not null references tt2.projects(id) on delete cascade,
   user_id uuid not null references tt2.profiles(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 80),  -- copy of the profile name, kept in step by the triggers below
   role text not null check (role in ('PM','BA','Dev','QA','Infra')),
   added_at timestamptz not null default now(),
   primary key (project_id, user_id)
@@ -41,6 +42,25 @@ create table if not exists tt2.project_members (
 create index if not exists project_members_user_idx on tt2.project_members(user_id);
 -- exactly one PM per project
 create unique index if not exists project_one_pm on tt2.project_members(project_id) where role = 'PM';
+
+-- The member name is filled from the profile on insert, and follows later profile name changes.
+create or replace function tt2.set_member_name() returns trigger language plpgsql as $$
+begin
+  select name into new.name from tt2.profiles where id = new.user_id;
+  return new;
+end $$;
+drop trigger if exists trg_member_name on tt2.project_members;
+create trigger trg_member_name before insert on tt2.project_members
+for each row execute function tt2.set_member_name();
+
+create or replace function tt2.sync_member_name() returns trigger language plpgsql as $$
+begin
+  update tt2.project_members set name = new.name where user_id = new.id;
+  return new;
+end $$;
+drop trigger if exists trg_profile_name on tt2.profiles;
+create trigger trg_profile_name after update of name on tt2.profiles
+for each row execute function tt2.sync_member_name();
 
 -- ---------------------------------------------------------------- meetings (PM only)
 create table if not exists tt2.meetings (

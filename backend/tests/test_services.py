@@ -33,14 +33,14 @@ def test_stage_mapping():
 def test_task_validation():
     pid = "6f1c2d3e-0000-4000-8000-000000000001"
     with pytest.raises(ValidationError):
-        TaskCreate(project_id=pid, title="   ")
+        TaskCreate(project_id=pid, title="   ", due_date="2026-12-01")
     with pytest.raises(ValidationError):
-        TaskCreate(project_id=pid, title="x", estimate_hrs=-1)
+        TaskCreate(project_id=pid, title="x", estimate_hrs=-1, due_date="2026-12-01")
     with pytest.raises(ValidationError):
-        TaskCreate(project_id=pid, title="x", ticket_stage="MADE UP")
+        TaskCreate(project_id=pid, title="x", ticket_stage="MADE UP", due_date="2026-12-01")
     with pytest.raises(ValidationError):
         TaskPatch(project_id=pid)  # a task cannot be moved to another project
-    assert TaskCreate(project_id=pid, title="  padded  ").title == "padded"
+    assert TaskCreate(project_id=pid, title="  padded  ", due_date="2026-12-01").title == "padded"
 
 
 def test_meeting_attendee_lists_are_cleaned():
@@ -81,3 +81,8 @@ def test_excel_leaves_out_an_empty_client_line():
     m = {"title": "T", "meeting_date": None, "attendees_internal": ["A"], "attendees_client": [],
          "summary_rows": [], "next_actions": []}
     assert load_workbook(io.BytesIO(build_mom(m))).active["B6"].value == "Internal: A"
+
+
+def test_due_date_is_required_on_a_new_task():
+    with pytest.raises(ValidationError):
+        TaskCreate(project_id="6f1c2d3e-0000-4000-8000-000000000001", title="No due date")
