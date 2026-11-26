@@ -7,6 +7,8 @@ import { useSession } from "../session";
 import { fmtDate, fmtDateTime, isOverdue } from "../util";
 import { describeChange } from "../pages/Logs";
 
+const NotApplicable = () => <em>NA</em>;
+
 // Details of one task, with its history for signed-in members. Opened from tables, boards, the calendar and the team page.
 export default function TaskDrawer({ taskId, onClose, onEdit, onDelete, onRestore }) {
   const { signedIn } = useSession();
@@ -32,13 +34,13 @@ export default function TaskDrawer({ taskId, onClose, onEdit, onDelete, onRestor
             {task.is_blocked && <div className="banner warn">Blocker: {task.blocker_reason}</div>}
             <dl className="dl">
               <dt>Project</dt><dd><Link to={`/projects/${task.project_id}`} onClick={onClose}>{task.project_name}</Link></dd>
-              <dt>Assignee</dt><dd>{task.assignee_name ? <span className="row"><Avatar name={task.assignee_name} /> {task.assignee_name} {task.assignee_role && <RoleTag role={task.assignee_role} />}</span> : "Unassigned"}</dd>
-              <dt>Due</dt><dd className={isOverdue(task) ? "overdue" : ""}>{fmtDate(task.due_date)}{isOverdue(task) && " (overdue)"}</dd>
-              <dt>Ticket stage</dt><dd>{task.ticket_stage || "—"}</dd>
-              <dt>Ticket ref</dt><dd>{task.ticket_ref || "—"}</dd>
-              <dt>Module</dt><dd>{task.module || "—"}</dd>
-              <dt>Estimate</dt><dd>{task.estimate_hrs != null ? `${task.estimate_hrs} h` : "—"}</dd>
-              <dt>Notes</dt><dd style={{ whiteSpace: "pre-wrap" }}>{task.notes || "—"}</dd>
+              <dt>Assignee</dt><dd>{task.assignee_name ? <span className="row"><Avatar name={task.assignee_name} /> {task.assignee_name} {task.assignee_role && <RoleTag role={task.assignee_role} />}</span> : <NotApplicable />}</dd>
+              <dt>Due</dt><dd className={isOverdue(task) ? "overdue" : ""}>{task.due_date ? <>{fmtDate(task.due_date)}{isOverdue(task) && " (overdue)"}</> : <NotApplicable />}</dd>
+              <dt>Ticket stage</dt><dd>{task.ticket_stage || <NotApplicable />}</dd>
+              <dt>Ticket ref</dt><dd>{task.ticket_ref || <NotApplicable />}</dd>
+              <dt>Module</dt><dd>{task.module || <NotApplicable />}</dd>
+              <dt>Estimate</dt><dd>{task.estimate_hrs != null ? `${task.estimate_hrs} h` : <NotApplicable />}</dd>
+              <dt>Notes</dt><dd style={{ whiteSpace: "pre-wrap" }}>{task.notes ? task.notes : <NotApplicable />}</dd>
             </dl>
             <div className="row wrap">
               {!task.deleted_at && (task.perms.edit_all || task.perms.edit_status) && <button className="btn" onClick={() => onEdit(task)}><Pencil size={15} /> {task.perms.edit_all ? "Edit" : "Update my task"}</button>}

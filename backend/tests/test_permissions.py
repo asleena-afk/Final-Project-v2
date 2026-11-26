@@ -19,6 +19,20 @@ def test_visitor_can_read_public_pages(world):
         assert call("GET", path).status_code == 200, path
 
 
+def test_task_list_matches_dashboard_scopes_and_open_count(world):
+    call = world["call"]
+    own_open = new_task(world, assignee_id=USERS["dev"].id)
+    project_open = new_task(world, title="Unassigned open task")
+    done = new_task(world, title="Completed task", status="done")
+
+    my_tasks = call("GET", "/tasks?scope=my_tasks&open_only=true", "dev").json()
+    my_projects = call("GET", "/tasks?scope=my_projects&open_only=true", "dev").json()
+    assert [task["id"] for task in my_tasks["items"]] == [own_open["id"]]
+    assert {task["id"] for task in my_projects["items"]} == {own_open["id"], project_open["id"]}
+    assert all(task["id"] != done["id"] for task in my_projects["items"])
+    assert call("GET", "/tasks?scope=my_tasks",).status_code == 401
+
+
 def test_visitor_cannot_write_or_see_private_pages(world):
     call, pid = world["call"], world["pid"]
     assert call("POST", "/tasks", json={"project_id": pid, "title": "x", "due_date": "2026-12-01"}).status_code == 401

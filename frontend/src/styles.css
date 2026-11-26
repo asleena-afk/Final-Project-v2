@@ -39,6 +39,9 @@ h1 { font-size: 22px; margin: 0; } h2 { font-size: 16px; margin: 0 0 10px; } h3 
 .grid { display: grid; gap: 16px; } .g2 { grid-template-columns: repeat(2, minmax(0,1fr)); } .g3 { grid-template-columns: repeat(3, minmax(0,1fr)); } .g-side { grid-template-columns: minmax(0,2fr) minmax(280px,1fr); }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 18px; }
 .kpi { border-radius: var(--radius); padding: 16px 18px; color: #fff; display: flex; justify-content: space-between; align-items: center; box-shadow: var(--shadow); }
+.dashboard-kpi-interactive { width: 100%; border: 0; color: inherit; cursor: pointer; font: inherit; text-align: left; transition: filter .15s, transform .15s; }
+.dashboard-kpi-interactive:hover { color: inherit; filter: brightness(1.06); transform: translateY(-2px); }
+.dashboard-kpi-interactive:focus-visible { outline: 3px solid #312e81; outline-offset: 3px; }
 .kpi .n { font-size: 30px; font-weight: 700; line-height: 1; } .kpi .l { opacity: .9; margin-top: 4px; }
 .kpi svg { opacity: .35; } .kpi-1 { background: linear-gradient(135deg,#6366f1,#8b5cf6); } .kpi-2 { background: linear-gradient(135deg,#06b6d4,#3b82f6); } .kpi-3 { background: linear-gradient(135deg,#f43f5e,#fb7185); } .kpi-4 { background: linear-gradient(135deg,#f59e0b,#f97316); } .kpi-5 { background: linear-gradient(135deg,#10b981,#14b8a6); }
 
@@ -60,6 +63,7 @@ label { display: grid; gap: 4px; font-weight: 500; font-size: 13px; } label.inli
 table { width: 100%; border-collapse: collapse; } th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 td { padding: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; } tr:hover td { background: #fafbff; } th.sort { cursor: pointer; user-select: none; }
 .tasktitle { font-weight: 400; cursor: pointer; } .tasktitle:hover { color: var(--brand); }
+.task-list-title { width: auto; padding: 0; border: 0; background: none; text-align: left; font: inherit; }
 .team-task-title { display: grid; grid-template-columns: 18px 1fr; align-items: start; gap: 2px; border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; font-weight: 400; cursor: pointer; width: 100%; }
 .team-task-title:hover { color: var(--brand); }
 .team-task-due { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; font-weight: 400; white-space: nowrap; cursor: pointer; height: 20px; line-height: 20px; }
@@ -95,6 +99,9 @@ td { padding: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; } 
 .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: grid; place-items: center; z-index: 50; padding: 16px; }
 .modal { background: #fff; border-radius: 16px; width: min(640px, 100%); max-height: 92vh; overflow: auto; padding: 22px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
 .modal h2 { font-size: 18px; } .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.attention-title { color: #b91c1c; text-align: center; }
+.attention-message svg { color: var(--danger); flex: none; }
+.attention-message { display: flex; align-items: center; gap: 8px; }
 .drawer-wrap { position: fixed; inset: 0; background: rgba(15,23,42,.35); z-index: 40; display: flex; justify-content: flex-end; }
 .drawer { width: min(460px, 100%); background: #fff; height: 100%; overflow: auto; padding: 22px; box-shadow: -10px 0 40px rgba(0,0,0,.2); display: grid; gap: 14px; align-content: start; }
 .dl { display: grid; grid-template-columns: 110px 1fr; gap: 8px 12px; } .dl dt { color: var(--muted); } .dl dd { margin: 0; }

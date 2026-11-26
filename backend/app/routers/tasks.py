@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from psycopg.types.json import Jsonb
@@ -133,6 +134,8 @@ def _replace_meeting_action_title(db, meeting_id, old_title, new_title, required
 @router.get("")
 def list_tasks(
     project_id: str | None = None,
+    scope: Literal["all", "my_projects", "my_tasks"] = "all",
+    open_only: bool = False,
     status: str | None = None,
     blocked: bool | None = None,
     assignee_id: str | None = None,
@@ -151,6 +154,8 @@ def list_tasks(
         raise HTTPException(422, "Cannot sort by that column")
     where, args = [], []
     project = get_project(db, project_id) if project_id else None
+    if scope != "all" and user is None:
+        raise HTTPException(401, "Sign in to view scoped tasks")
     if trash:
         if project is None:
             raise HTTPException(422, "Trash needs a project_id")
@@ -164,6 +169,14 @@ def list_tasks(
         where.append("t.deleted_at is null")
     if project_id:
         where.append("t.project_id=%s"); args.append(as_uuid(project_id, "Project"))
+    if scope == "my_projects":
+        where.append("t.project_id in (select project_id from project_members where user_id=%s)")
+        args.append(user.id)
+    elif scope == "my_tasks":
+        where.append("t.assignee_id=%s")
+        args.append(user.id)
+    if open_only:
+        where.append("t.status<>'done'")
     if status:
         where.append("t.status=%s"); args.append(status)
     if blocked is not None:
