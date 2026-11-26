@@ -4,7 +4,7 @@ from conftest import USERS
 
 
 def new_task(w, who="pm", **extra):
-    body = {"project_id": w["pid"], "title": "Write UAT plan", **extra}
+    body = {"project_id": w["pid"], "title": "Write UAT plan", "due_date": "2026-12-01", **extra}
     r = w["call"]("POST", "/tasks", who, json=body)
     assert r.status_code == 201, r.text
     return r.json()
@@ -21,7 +21,7 @@ def test_visitor_can_read_public_pages(world):
 
 def test_visitor_cannot_write_or_see_private_pages(world):
     call, pid = world["call"], world["pid"]
-    assert call("POST", "/tasks", json={"project_id": pid, "title": "x"}).status_code == 401
+    assert call("POST", "/tasks", json={"project_id": pid, "title": "x", "due_date": "2026-12-01"}).status_code == 401
     assert call("POST", "/projects", json={"name": "x"}).status_code == 401
     for path in ("/logs", "/meetings", "/me"):
         assert call("GET", path).status_code == 401, path
@@ -44,22 +44,31 @@ def test_bad_ids_are_404_not_500(world):
 # ---------------------------------------------------------------- adding tasks
 def test_any_member_can_add_but_outsider_cannot(world):
     call, pid = world["call"], world["pid"]
-    assert call("POST", "/tasks", "qa", json={"project_id": pid, "title": "Test plan"}).status_code == 201
-    assert call("POST", "/tasks", "zed", json={"project_id": pid, "title": "Sneaky"}).status_code == 403
+    assert call("POST", "/tasks", "qa", json={"project_id": pid, "title": "Test plan", "due_date": "2026-12-01"}).status_code == 201
+    assert call("POST", "/tasks", "zed", json={"project_id": pid, "title": "Sneaky", "due_date": "2026-12-01"}).status_code == 403
 
 
 def test_title_rules(world):
     call, pid = world["call"], world["pid"]
-    post = lambda t: call("POST", "/tasks", "pm", json={"project_id": pid, "title": t}).status_code  # noqa: E731
+    post = lambda t: call("POST", "/tasks", "pm", json={"project_id": pid, "title": t, "due_date": "2026-12-01"}).status_code  # noqa: E731
     assert post("   ") == 422
     assert post("x" * 161) == 422
     assert post("x" * 160) == 201
 
 
+def test_due_date_is_required_and_cannot_be_cleared(world):
+    call, pid = world["call"], world["pid"]
+    assert call("POST", "/tasks", "pm", json={"project_id": pid, "title": "No due date"}).status_code == 422
+    task = new_task(world)
+    assert call("PATCH", f"/tasks/{task['id']}", "pm", json={"due_date": None}).status_code == 422
+
+
 def test_assignee_must_be_a_member(world):
     call, pid = world["call"], world["pid"]
     zed = USERS["zed"].id
-    assert call("POST", "/tasks", "pm", json={"project_id": pid, "title": "x", "assignee_id": zed}).status_code == 422
+    assert call("POST", "/tasks", "pm", json={
+        "project_id": pid, "title": "x", "assignee_id": zed, "due_date": "2026-12-01",
+    }).status_code == 422
     t = new_task(world, assignee_id=USERS["dev"].id)
     assert t["assignee_name"] == "Dev" and t["assignee_role"] == "Dev"
 
@@ -109,6 +118,9 @@ def test_perms_flags_for_the_ui(world):
     assert perms("dev") == {"edit_all": False, "edit_status": True, "delete": False}
     assert perms("qa")["edit_status"] is False
     assert perms(None) == {"edit_all": False, "edit_status": False, "delete": False}
+    own_task = new_task(world, "dev")
+    assert call("GET", f"/tasks/{own_task['id']}", "dev").json()["perms"]["delete"] is True
+    assert call("GET", f"/tasks/{own_task['id']}", "qa").json()["perms"]["delete"] is False
 
 
 def test_blocker_needs_a_reason_and_stage_sets_status(world):
@@ -138,7 +150,7 @@ def test_soft_delete_restore_and_purge(world):
     assert call("GET", url).status_code == 404 and call("GET", url, "dev").status_code == 404
     assert call("GET", url, "pm").status_code == 200
     assert call("PATCH", url, "pm", json={"notes": "x"}).status_code == 404
-    assert call("GET", f"/tasks?project_id={pid}&trash=true", "dev").status_code == 403
+    assert call("GET", f"/tasks?project_id={pid}&trash=true", "dev").json()["total"] == 0
     assert call("GET", f"/tasks?project_id={pid}&trash=true", "pm").json()["total"] == 1
     assert call("POST", f"{url}/restore", "dev").status_code == 403
     assert call("POST", f"{url}/restore", "pm").status_code == 200
@@ -151,12 +163,62 @@ def test_soft_delete_restore_and_purge(world):
     assert {"created", "deleted", "restored", "purged"} <= set(actions)  # history survives the purge
 
 
+def test_task_history_includes_entity_for_task_drawer(world):
+    call = world["call"]
+    t = new_task(world)
+    history = call("GET", f"/tasks/{t['id']}/history", "pm").json()
+    assert history[0]["entity"] == "task"
+    assert history[0]["entity_label"] == t["title"]
+
+
+def test_creator_can_delete_and_restore_but_only_pm_can_purge(world):
+    call = world["call"]
+    other = new_task(world)
+    assert call("DELETE", f"/tasks/{other['id']}", "pm").status_code == 204
+    t = new_task(world, "dev")
+    url = f"/tasks/{t['id']}"
+
+    assert call("DELETE", url, "dev").status_code == 204
+    trash = call("GET", f"/tasks?project_id={world['pid']}&trash=true", "dev").json()
+    assert trash["total"] == 1 and trash["trash_count"] == 2
+    assert trash["items"][0]["id"] == t["id"]
+    assert call("GET", url, "dev").status_code == 200
+    assert call("POST", f"{url}/restore", "qa").status_code == 403
+    assert call("POST", f"{url}/restore", "dev").status_code == 200
+    assert call("DELETE", url, "dev").status_code == 204
+    assert call("DELETE", f"{url}/purge", "dev").status_code == 403
+    assert call("DELETE", f"{url}/purge", "pm").status_code == 204
+    assert call("DELETE", f"/tasks/{other['id']}/purge", "pm").status_code == 204
+
+
 def test_deleted_tasks_do_not_count_on_dashboard(world):
     call = world["call"]
     t = new_task(world)
     assert call("GET", "/dashboard").json()["kpis"]["open_tasks"] == 1
     call("DELETE", f"/tasks/{t['id']}", "pm")
     assert call("GET", "/dashboard").json()["kpis"]["open_tasks"] == 0
+
+
+def test_dashboard_my_tasks_scope_only_counts_assigned_tasks(world):
+    call = world["call"]
+    new_task(world, assignee_id=USERS["dev"].id, is_blocked=True, due_date="2000-01-01")
+    new_task(world, assignee_id=USERS["qa"].id)
+    new_task(world)
+
+    assert call("GET", "/dashboard?scope=my_tasks").status_code == 401
+    mine = call("GET", "/dashboard?scope=my_tasks", "dev").json()
+    assert mine["kpis"] == {
+        "total_projects": 1,
+        "open_tasks": 1,
+        "blocked": 1,
+        "overdue": 1,
+        "due_soon": 0,
+    }
+    assert mine["projects"][0]["total"] == 1
+
+    my_projects = call("GET", "/dashboard?scope=my_projects", "dev").json()
+    assert my_projects["kpis"]["total_projects"] == 1
+    assert my_projects["projects"][0]["total"] == 3
 
 
 # ---------------------------------------------------------------- members
@@ -181,7 +243,7 @@ def test_removing_a_member_unassigns_their_tasks(world):
     assert call("DELETE", f"/projects/{pid}/members/{USERS['dev'].id}", "pm").status_code == 204
     after = call("GET", f"/tasks/{t['id']}").json()
     assert after["assignee_id"] is None and after["title"] == "Write UAT plan"
-    assert call("POST", "/tasks", "dev", json={"project_id": pid, "title": "x"}).status_code == 403
+    assert call("POST", "/tasks", "dev", json={"project_id": pid, "title": "x", "due_date": "2026-12-01"}).status_code == 403
 
 
 def test_only_allowed_emails_can_create_projects(api, monkeypatch):
@@ -274,14 +336,91 @@ def test_meetings_private_to_pm_with_collapsed_transcript(world):
     assert call("DELETE", url, "pm").status_code == 204
 
 
+def test_meeting_resummarize_replaces_existing_summary(world, monkeypatch):
+    from app.routers import meetings
+    from app.schemas.meeting import SummaryResult, SummaryRow
+
+    call, pid = world["call"], world["pid"]
+    meeting = call("POST", "/meetings", "pm", json={
+        "project_id": pid, "title": "Kickoff", "transcript": "Discuss delivery dates",
+    }).json()
+    calls = []
+
+    results = iter([
+        SummaryResult(
+            rows=[SummaryRow(no=1, topic="Schedule", details="", action_items=["Confirm date"])],
+            next_actions=["Follow up"],
+        ),
+        SummaryResult(
+            rows=[SummaryRow(no=1, topic="Review", details="", action_items=["Book review"])],
+            next_actions=["Schedule review"],
+        ),
+    ])
+
+    def summarize(transcript):
+        calls.append(transcript)
+        return next(results)
+
+    monkeypatch.setattr(meetings.summarizer, "summarize", summarize)
+    url = f"/meetings/{meeting['id']}/summarize"
+    first = call("POST", url, "pm")
+    second = call("POST", url, "pm")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["summary_rows"][0]["action_items"] == ["Book review"]
+    assert second.json()["next_actions"] == ["Schedule review"]
+    assert calls == ["Discuss delivery dates", "Discuss delivery dates"]
+
+
 def test_only_pm_links_tasks_to_meetings(world):
     call, pid = world["call"], world["pid"]
     m = call("POST", "/meetings", "pm", json={"project_id": pid, "title": "Kickoff"}).json()
-    assert call("POST", "/tasks", "pm", json={"project_id": pid, "title": "Action", "meeting_id": m["id"]}).status_code == 201
-    assert call("POST", "/tasks", "dev", json={"project_id": pid, "title": "Action", "meeting_id": m["id"]}).status_code == 403
+    assigned = call("POST", "/tasks", "pm", json={
+        "project_id": pid, "title": "Action", "meeting_id": m["id"], "assignee_id": USERS["dev"].id,
+        "due_date": "2026-12-01",
+    })
+    assert assigned.status_code == 201
+    assert call("POST", "/tasks", "pm", json={
+        "project_id": pid, "title": "Unassigned action", "meeting_id": m["id"], "due_date": "2026-12-01",
+    }).status_code == 201
+    assert call("POST", "/tasks", "dev", json={
+        "project_id": pid, "title": "Action", "meeting_id": m["id"], "due_date": "2026-12-01",
+    }).status_code == 403
     other = call("POST", "/projects", "pm", json={"name": "Other"}).json()["id"]
-    assert call("POST", "/tasks", "pm", json={"project_id": other, "title": "x", "meeting_id": m["id"]}).status_code == 422
-    assert call("GET", "/meetings", "pm").json()[0]["tasks_created"] == 1
+    assert call("POST", "/tasks", "pm", json={
+        "project_id": other, "title": "x", "meeting_id": m["id"], "due_date": "2026-12-01",
+    }).status_code == 422
+    detail = call("GET", f"/meetings/{m['id']}", "pm").json()
+    assert detail["assigned_action_items"] == [{
+        "title": "Action", "assignee_id": str(USERS["dev"].id), "assignee_name": "Dev",
+    }]
+    assert call("GET", "/meetings", "pm").json()[0]["tasks_created"] == 2
+
+
+def test_linked_task_title_updates_meeting_action_item(world):
+    call, pid = world["call"], world["pid"]
+    meeting = call("POST", "/meetings", "pm", json={"project_id": pid, "title": "Kickoff"}).json()
+    action = "Confirm delivery date"
+    rows = [{"no": 1, "topic": "Schedule", "details": "", "action_items": [action]}]
+    saved = call("PUT", f"/meetings/{meeting['id']}", "pm", json={
+        "project_id": pid, "title": "Kickoff", "summary_rows": rows, "next_actions": [action],
+    })
+    assert saved.status_code == 200
+
+    created = call("POST", "/tasks", "pm", json={
+        "project_id": pid, "meeting_id": meeting["id"], "meeting_action_item": action,
+        "title": "Agree on launch date", "assignee_id": USERS["dev"].id, "due_date": "2026-12-01",
+    })
+    assert created.status_code == 201, created.text
+    detail = call("GET", f"/meetings/{meeting['id']}", "pm").json()
+    assert detail["summary_rows"][0]["action_items"] == ["Agree on launch date"]
+    assert detail["next_actions"] == ["Agree on launch date"]
+
+    updated = call("PATCH", f"/tasks/{created.json()['id']}", "pm", json={"title": "Set launch date"})
+    assert updated.status_code == 200
+    detail = call("GET", f"/meetings/{meeting['id']}", "pm").json()
+    assert detail["summary_rows"][0]["action_items"] == ["Set launch date"]
+    assert detail["next_actions"] == ["Set launch date"]
 
 
 def test_transcript_upload_is_pm_only(world):

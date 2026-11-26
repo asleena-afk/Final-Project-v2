@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowDownUp, KanbanSquare, Pencil, Plus, Table2, Trash2, Users } from "lucide-react";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowDownUp, KanbanSquare, Pencil, Plus, RotateCcw, Table2, Trash2, Users } from "lucide-react";
 import TaskForm from "../components/TaskForm";
 import TaskOpener from "../components/TaskOpener";
 import ProjectForm from "../components/ProjectForm";
+import Modal from "../components/Modal";
 import { Avatar, Empty, ErrorText, HealthDot, PriorityPill, Progress, RoleTag, StatusPill } from "../components/Bits";
 import { api, qs } from "../api";
 import { ASSIGNABLE_ROLES, STATUSES, STATUS_COLOR, accent } from "../constants";
@@ -12,32 +13,96 @@ import { useSession } from "../session";
 
 export default function ProjectPage() {
   const { id } = useParams();
+  const location = useLocation();
   const nav = useNavigate();
+  const assignedPerson = location.state?.assignedPerson;
   const { signedIn, me } = useSession();
   const [sp, setSp] = useSearchParams();
   const tab = sp.get("tab") || "table";
+  const mine = sp.get("task_scope") === "mine";
   const [project, setProject] = useState(null);
   const [members, setMembers] = useState([]);
+  const [trashCount, setTrashCount] = useState(null);
+  const [trashSelection, setTrashSelection] = useState([]);
+  const [trashActionBusy, setTrashActionBusy] = useState(false);
+  const [trashActionError, setTrashActionError] = useState("");
+  const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false);
   const [error, setError] = useState("");
   const [tick, setTick] = useState(0);
   const [open, setOpen] = useState(null);
   const [adding, setAdding] = useState(false);
   const [editingProject, setEditingProject] = useState(false);
-  const [mine, setMine] = useState(false); // "My tasks" toggle, kept when switching between Table and Board
   const refresh = () => setTick((t) => t + 1);
+  useEffect(() => {
+    setTrashSelection([]);
+    setTrashActionError("");
+  }, [id]);
+  const setMine = (value) => {
+    const next = new URLSearchParams(sp);
+    if (value) next.set("task_scope", "mine");
+    else next.delete("task_scope");
+    setSp(next, { state: location.state });
+  };
 
   const loadProject = useCallback(() => {
     api.get(`/projects/${id}`).then(setProject).catch((e) => setError(e.message));
     api.get(`/projects/${id}/members`).then(setMembers).catch(() => {});
   }, [id]);
   useEffect(() => { loadProject(); }, [loadProject, me?.id]);
+  useEffect(() => {
+    if (!project?.my_role || String(project.id) !== id) {
+      setTrashCount(null);
+      return;
+    }
+    api.get(`/tasks?${qs({ project_id: id, trash: true, page_size: 1 })}`)
+      .then((r) => setTrashCount(r.trash_count))
+      .catch((e) => setError(e.message));
+  }, [id, tick, project?.id, project?.my_role]);
 
   if (error) return <><ErrorText error={error} /><Link to="/projects">Back to projects</Link></>;
   if (!project) return <p className="muted">Loading…</p>;
   const isPm = project.my_role === "PM";
   const isMember = Boolean(project.my_role);
   const c = accent(project.name);
-  const setTab = (t) => setSp({ tab: t });
+  const setTab = (t) => {
+    const next = new URLSearchParams(sp);
+    next.set("tab", t);
+    setSp(next, { state: location.state });
+    if (t !== "trash") setTrashSelection([]);
+  };
+
+  async function runTrashAction(action) {
+    if (!trashSelection.length || trashActionBusy) return;
+    setTrashActionBusy(true);
+    setTrashActionError("");
+    const failed = [];
+    try {
+      for (const task of trashSelection) {
+        try {
+          if (action === "restore") await api.post(`/tasks/${task.id}/restore`);
+          else await api.del(`/tasks/${task.id}/purge`);
+        } catch (e) {
+          failed.push({ task, message: e.message || "Request failed" });
+        }
+      }
+      const succeeded = trashSelection.length - failed.length;
+      setTrashSelection(failed.map((failure) => failure.task));
+      if (succeeded > 0) refresh();
+      if (failed.length) {
+        const verb = action === "restore" ? "restored" : "deleted forever";
+        setTrashActionError(
+          `${succeeded} task${succeeded === 1 ? "" : "s"} ${verb}; ${failed.length} failed. ${failed[0].message}`
+        );
+      }
+    } finally {
+      setTrashActionBusy(false);
+    }
+  }
+
+  const confirmPurge = () => {
+    setPurgeConfirmOpen(false);
+    runTrashAction("purge");
+  };
 
   async function removeProject() {
     if (!window.confirm(`Delete project “${project.name}” and all its tasks and meetings? This cannot be undone.`)) return;
@@ -69,33 +134,61 @@ export default function ProjectPage() {
         <button className={`tab${tab === "table" ? " active" : ""}`} onClick={() => setTab("table")}><Table2 size={16} /> Table</button>
         <button className={`tab${tab === "board" ? " active" : ""}`} onClick={() => setTab("board")}><KanbanSquare size={16} /> Board</button>
         <button className={`tab${tab === "team" ? " active" : ""}`} onClick={() => setTab("team")}><Users size={16} /> Team ({members.length})</button>
-        {isPm && <button className={`tab${tab === "trash" ? " active" : ""}`} onClick={() => setTab("trash")}><Trash2 size={16} /> Trash</button>}
+        {isMember && <button className={`tab${tab === "trash" ? " active" : ""}`} onClick={() => setTab("trash")}><Trash2 size={16} /> Trash{trashCount != null && ` (${trashCount})`}</button>}
+        {tab === "trash" && isMember && <span className="grow" />}
+        {tab === "trash" && isMember && <button className="btn sm" disabled={!trashSelection.length || trashActionBusy} onClick={() => runTrashAction("restore")}><RotateCcw size={14} /> Restore</button>}
+        {tab === "trash" && isPm && <button className="btn sm danger" disabled={!trashSelection.length || trashActionBusy} onClick={() => setPurgeConfirmOpen(true)}><Trash2 size={14} /> Delete forever</button>}
       </div>
 
-      {tab === "table" && <TaskTable projectId={id} members={members} tick={tick} onOpen={setOpen} mine={mine && isMember} setMine={isMember ? setMine : null} meId={me?.id} />}
-      {tab === "board" && <Board projectId={id} tick={tick} onOpen={setOpen} mine={mine && isMember} setMine={isMember ? setMine : null} meId={me?.id} />}
+      {tab === "table" && <TaskTable projectId={id} members={members} tick={tick} onOpen={setOpen} mine={mine && isMember} setMine={isMember ? setMine : null} meId={me?.id} assignedPerson={assignedPerson} />}
+      {tab === "board" && <Board projectId={id} tick={tick} onOpen={setOpen} mine={mine && isMember} setMine={isMember ? setMine : null} meId={me?.id} assignedPerson={assignedPerson} />}
       {tab === "team" && <TeamTab project={project} members={members} isPm={isPm} tick={tick} onChange={() => { loadProject(); refresh(); }} onOpenTask={setOpen} />}
-      {tab === "trash" && isPm && <Trash projectId={id} tick={tick} onOpen={setOpen} onChange={refresh} />}
+      {tab === "trash" && isMember && <Trash projectId={id} tick={tick} isPm={isPm} onOpen={setOpen} selected={trashSelection} onSelectionChange={setTrashSelection} actionError={trashActionError} />}
 
       {adding === "task" && <TaskForm projectId={id} members={members} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); refresh(); }} />}
       {editingProject && <ProjectForm project={project} onClose={() => setEditingProject(false)} onSaved={(p) => { setEditingProject(false); setProject({ ...project, ...p }); }} />}
       {open && <TaskOpener taskId={open} onClose={() => setOpen(null)} onChanged={refresh} />}
+      {purgeConfirmOpen && (
+        <Modal title="Confirm permanent deletion" onClose={() => setPurgeConfirmOpen(false)}>
+          <p>
+            Permanently delete {trashSelection.length} selected task{trashSelection.length === 1 ? "" : "s"}?
+            This cannot be undone.
+          </p>
+          <ul style={{ maxHeight: 220, overflowY: "auto", paddingLeft: 28 }}>
+            {trashSelection.map((task) => <li key={task.id}>{task.title}</li>)}
+          </ul>
+          <div className="modal-actions">
+            <button type="button" className="btn" onClick={() => setPurgeConfirmOpen(false)}>Cancel</button>
+            <button type="button" className="btn danger" disabled={trashActionBusy || !trashSelection.length} onClick={confirmPurge}>Delete forever</button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
 
-function MineToggle({ mine, setMine }) {
+function TaskScope({ mine, setMine }) {
   if (!setMine) return null;
-  return <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} style={{ width: "auto", minWidth: 0 }} /> My tasks</label>;
+  return (
+    <select aria-label="Task scope" value={mine ? "mine" : "all"} onChange={(e) => setMine(e.target.value === "mine")}>
+      <option value="mine">My Tasks</option>
+      <option value="all">All</option>
+    </select>
+  );
 }
 
-function TaskTable({ projectId, members, tick, onOpen, mine, setMine, meId }) {
-  const [f, setF] = useState({ q: "", status: "", assignee_id: "", blocked: "" });
+function TaskTable({ projectId, members, tick, onOpen, mine, setMine, meId, assignedPerson }) {
+  const [f, setF] = useState(() => ({ q: "", status: "", assignee_id: assignedPerson?.id || "", blocked: "" }));
   const [sort, setSort] = useState({ by: "created_at", desc: true });
   const [page, setPage] = useState(1);
   const [data, setData] = useState({ items: [], total: 0 });
   const [error, setError] = useState("");
   const size = 10;
+  useEffect(() => {
+    const assigneeId = assignedPerson?.id || "";
+    setF((current) => current.assignee_id === assigneeId ? current : { ...current, assignee_id: assigneeId });
+    setPage(1);
+  }, [projectId, assignedPerson?.id]);
   useEffect(() => {
     api.get(`/tasks?${qs({ project_id: projectId, ...f, assignee_id: mine ? meId : f.assignee_id, sort: sort.by, desc: sort.desc, page, page_size: size })}`)
       .then(setData).catch((e) => setError(e.message));
@@ -108,7 +201,11 @@ function TaskTable({ projectId, members, tick, onOpen, mine, setMine, meId }) {
       <div className="filters">
         <input placeholder="Search title or ticket…" value={f.q} onChange={(e) => set("q", e.target.value)} />
         <select value={f.status} onChange={(e) => set("status", e.target.value)}><option value="">All statuses</option>{STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-        <MineToggle mine={mine} setMine={setMine ? (v) => { setPage(1); setMine(v); } : null} />
+        <TaskScope mine={mine} setMine={setMine ? (v) => {
+          setPage(1);
+          if (!v) setF((p) => ({ ...p, assignee_id: "" }));
+          setMine(v);
+        } : null} />
         <select value={mine ? meId : f.assignee_id} disabled={mine} onChange={(e) => set("assignee_id", e.target.value)}><option value="">Everyone</option>{members.map((m) => <option key={m.user_id} value={m.user_id}>{m.name} ({m.role})</option>)}</select>
         <select value={f.blocked} onChange={(e) => set("blocked", e.target.value)}><option value="">Blocked or not</option><option value="true">Blocked only</option><option value="false">Not blocked</option></select>
       </div>
@@ -138,15 +235,22 @@ function TaskTable({ projectId, members, tick, onOpen, mine, setMine, meId }) {
   );
 }
 
-function Board({ projectId, tick, onOpen, mine, setMine, meId }) {
+function Board({ projectId, tick, onOpen, mine, setMine, meId, assignedPerson }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
   useEffect(() => { api.get(`/tasks?${qs({ project_id: projectId, sort: "due_date", page_size: 500 })}`).then((r) => setItems(r.items)).catch((e) => setError(e.message)); }, [projectId, tick]);
-  const visible = mine ? items.filter((t) => t.assignee_id === meId) : items;
+  const visible = mine
+    ? items.filter((t) => t.assignee_id === meId)
+    : assignedPerson
+      ? items.filter((t) => t.assignee_id === assignedPerson.id)
+      : items;
   return (
     <>
       <ErrorText error={error} />
-      {setMine && <div className="filters"><MineToggle mine={mine} setMine={setMine} /></div>}
+      {setMine && <div className="filters">
+        <TaskScope mine={mine} setMine={setMine} />
+        {assignedPerson && <span className="small muted">Tasks assigned to {assignedPerson.name}</span>}
+      </div>}
       <div className="board">
         {STATUSES.map(([v, l]) => {
           const col = visible.filter((t) => t.status === v);
@@ -242,20 +346,28 @@ function TeamTab({ project, members, isPm, tick, onChange, onOpenTask }) {
   );
 }
 
-function Trash({ projectId, tick, onOpen, onChange }) {
+function Trash({ projectId, tick, isPm, onOpen, selected, onSelectionChange, actionError }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
   useEffect(() => { api.get(`/tasks?${qs({ project_id: projectId, trash: true, page_size: 100 })}`).then((r) => setItems(r.items)).catch((e) => setError(e.message)); }, [projectId, tick]);
-  const act = async (fn) => { try { await fn(); onChange(); } catch (e) { setError(e.message); } };
+  const selectedIds = new Set(selected.map((task) => task.id));
+  const allSelected = items.length > 0 && items.every((task) => selectedIds.has(task.id));
   return (
     <div className="card table-wrap">
-      <ErrorText error={error} />
-      {items.length === 0 ? <Empty>The trash is empty. Deleted tasks wait here until you restore or remove them.</Empty> : (
-        <table><thead><tr><th>Task</th><th>Assignee</th><th>Status</th><th /></tr></thead>
+      <ErrorText error={error || actionError} />
+      {items.length === 0 ? <Empty>{isPm ? "The trash is empty." : "You have no deleted tasks in the trash."}</Empty> : (
+        <table><thead><tr><th><input type="checkbox" aria-label="Select all tasks in trash" checked={allSelected} onChange={(e) => onSelectionChange(e.target.checked ? items : [])} /></th><th>Task</th><th>Assignee</th><th>Status</th></tr></thead>
           <tbody>{items.map((t) => (
-            <tr key={t.id}><td><span className="tasktitle" onClick={() => onOpen(t.id)}>{t.title}</span></td><td>{t.assignee_name || "—"}</td><td><StatusPill status={t.status} /></td>
-              <td className="right"><button className="btn sm" onClick={() => act(() => api.post(`/tasks/${t.id}/restore`))}>Restore</button>{" "}
-                <button className="btn sm danger" onClick={() => window.confirm(`Permanently delete “${t.title}”? This cannot be undone.`) && act(() => api.del(`/tasks/${t.id}/purge`))}>Delete forever</button></td></tr>))}</tbody></table>
+            <tr key={t.id}>
+              <td><input type="checkbox" aria-label={`Select ${t.title}`} checked={selectedIds.has(t.id)} onChange={(e) => {
+                const checked = e.target.checked;
+                onSelectionChange((current) => checked
+                  ? current.some((task) => task.id === t.id) ? current : [...current, t]
+                  : current.filter((task) => task.id !== t.id));
+              }} /></td>
+              <td><span className="tasktitle" onClick={() => onOpen(t.id)}>{t.title}</span></td>
+              <td>{t.assignee_name || "—"}</td><td><StatusPill status={t.status} /></td>
+            </tr>))}</tbody></table>
       )}
     </div>
   );

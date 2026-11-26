@@ -16,7 +16,7 @@ export default function TaskOpener({ taskId, onClose, onChanged }) {
     catch (e) { setError(e.message); }
   }
   async function del(task) {
-    if (!window.confirm(`Move “${task.title}” to the trash? The project manager can restore it.`)) return;
+    if (!window.confirm(`Move “${task.title}” to the trash? It can be restored from the project trash.`)) return;
     try { await api.del(`/tasks/${task.id}`); onChanged?.(); onClose(); } catch (e) { setError(e.message); }
   }
   async function restore(task) {

@@ -2,6 +2,7 @@
 
 Visitor (no token)     read dashboard, projects, tasks, team, calendar. Nothing else.
 Member (BA/Dev/QA/Infra) + add tasks; on a task assigned to them: status, blocker, notes, ticket stage.
+Task creator            delete and restore their own tasks.
 PM (project owner)     everything, including meetings, members, delete/restore/purge.
 """
 from uuid import UUID
@@ -66,12 +67,24 @@ def require_pm(db, project_id, user: User | None) -> dict:
     return project
 
 
+def require_task_creator_or_pm(db, task: dict, user: User | None) -> None:
+    if user is None:
+        raise HTTPException(401, "Sign in to continue")
+    project = get_project(db, task["project_id"])
+    if str(project["owner_id"]) == user.id:
+        return
+    require_member(db, project["id"], user)
+    if str(task["created_by"]) != user.id:
+        raise HTTPException(403, "Only the task creator or project manager can do that")
+
+
 def task_perms(role: str | None, task: dict, user: User | None) -> dict:
     """What the viewer may do with one task. The UI uses this to show or hide buttons."""
     is_pm = role == "PM"
     mine = user is not None and task.get("assignee_id") is not None and str(task["assignee_id"]) == user.id
+    creator = user is not None and role is not None and str(task["created_by"]) == user.id
     return {
         "edit_all": is_pm,
         "edit_status": is_pm or (role is not None and mine),
-        "delete": is_pm,
+        "delete": is_pm or creator,
     }

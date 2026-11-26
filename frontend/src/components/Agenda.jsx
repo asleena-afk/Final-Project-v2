@@ -19,13 +19,10 @@ function Item({ t, onOpen }) {
 }
 
 // The "Today" card: my overdue, due-today and upcoming tasks (everyone's when not signed in). Click a task to open it.
-export default function Agenda({ onOpen, days = 14, myProjectsOnly = false }) {
+export default function Agenda({ onOpen, days = 14, scope = "all" }) {
   const { signedIn } = useSession();
-  const [scope, setScope] = useState("mine");
   const [a, setA] = useState(null);
-  const effective = signedIn
-    ? (scope === "mine" ? "mine" : (myProjectsOnly ? "my_projects" : "all"))
-    : "all";
+  const effective = !signedIn ? "all" : scope === "my_tasks" ? "mine" : scope;
   useEffect(() => {
     const load = () => api.get(`/agenda?scope=${effective}&days=${days}`).then(setA).catch(() => setA(null));
     load();
@@ -36,8 +33,7 @@ export default function Agenda({ onOpen, days = 14, myProjectsOnly = false }) {
   const none = !a.overdue.length && !a.due_today.length && !a.upcoming.length;
   return (
     <div className="card">
-      <div className="row"><h2 className="grow" style={{ margin: 0 }}><CalendarClock size={16} style={{ verticalAlign: -3 }} /> {effective === "mine" ? "My day" : "Today"} · {fmtDay(a.today)}</h2>
-        {signedIn && <select style={{ width: "auto" }} value={scope} onChange={(e) => setScope(e.target.value)}><option value="mine">Mine</option><option value="all">Everyone</option></select>}</div>
+      <div className="row"><h2 className="grow" style={{ margin: 0 }}><CalendarClock size={16} style={{ verticalAlign: -3 }} /> {effective === "mine" ? "My day" : "Today"} · {fmtDay(a.today)}</h2></div>
       {none && <Empty>Nothing due in the next {days} days.</Empty>}
       {a.overdue.length > 0 && <><div className="sec-title err"><AlertTriangle size={15} /> Overdue ({a.overdue.length})</div>{a.overdue.map((t) => <Item key={t.id} t={t} onOpen={onOpen} />)}</>}
       {a.due_today.length > 0 && <><div className="sec-title">Due today ({a.due_today.length})</div>{a.due_today.map((t) => <Item key={t.id} t={t} onOpen={onOpen} />)}</>}

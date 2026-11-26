@@ -10,7 +10,7 @@ const FIELDS = ["title", "notes", "status", "priority", "due_date", "due_time", 
 const MEMBER_FIELDS = ["status", "is_blocked", "blocker_reason", "notes", "ticket_stage"];
 
 // Create (any member) or edit. A member editing a task assigned to them can only touch the MEMBER_FIELDS.
-export default function TaskForm({ projectId, members, task, initial, projectOptions, onProjectChange, onSaved, onClose }) {
+export default function TaskForm({ projectId, members, task, initial, meetingId, meetingActionItem, projectOptions, onProjectChange, onSaved, onClose }) {
   const editing = Boolean(task);
   const full = !editing || task.perms.edit_all;
   const [f, setF] = useState(() => ({
@@ -29,6 +29,7 @@ export default function TaskForm({ projectId, members, task, initial, projectOpt
     e.preventDefault();
     setError("");
     if (!f.title.trim()) return setError("Title is required");
+    if ((!editing || full) && !f.due_date) return setError("Due date is required");
     if (f.is_blocked && !f.blocker_reason.trim()) return setError("A blocked task needs a reason");
     setBusy(true);
     try {
@@ -41,7 +42,11 @@ export default function TaskForm({ projectId, members, task, initial, projectOpt
         saved = await api.patch(`/tasks/${task.id}`, diff);
       } else {
         const clean = Object.fromEntries(Object.entries(body).map(([k, v]) => [k, v === "" ? null : v]));
-        saved = await api.post("/tasks", { ...clean, notes: f.notes, project_id: projectId });
+        const createBody = { ...clean, notes: f.notes, project_id: projectId, ...(meetingId ? { meeting_id: meetingId } : {}) };
+        if (meetingId && meetingActionItem && f.title.trim() !== (initial?.title || "").trim()) {
+          createBody.meeting_action_item = meetingActionItem;
+        }
+        saved = await api.post("/tasks", createBody);
       }
       onSaved(saved);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
@@ -66,7 +71,7 @@ export default function TaskForm({ projectId, members, task, initial, projectOpt
               {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.name} ({m.role})</option>)}
             </select>
           </label>
-          <label>Due date<input type="date" value={f.due_date || ""} disabled={!can("due_date")} onChange={(e) => set("due_date", e.target.value)} /></label>
+          <label>Due date<input type="date" value={f.due_date || ""} disabled={!can("due_date")} required={!editing || full} onChange={(e) => set("due_date", e.target.value)} /></label>
           <label>Due time<input type="time" value={f.due_time || ""} disabled={!can("due_time")} onChange={(e) => set("due_time", e.target.value)} /></label>
           <label>Ticket stage
             <select value={f.ticket_stage} disabled={!can("ticket_stage")} onChange={(e) => onStage(e.target.value)}>

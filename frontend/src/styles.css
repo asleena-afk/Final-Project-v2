@@ -26,6 +26,10 @@ h1 { font-size: 22px; margin: 0; } h2 { font-size: 16px; margin: 0 0 10px; } h3 
 .main { padding: 24px 28px 48px; min-width: 0; }
 .page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
 .page-head .sub { color: var(--muted); }
+.dashboard-scope { position: relative; }
+.dashboard-scope-menu { position: absolute; top: 100%; right: 0; z-index: 20; min-width: 160px; padding: 5px; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+.dashboard-scope-option { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.dashboard-scope-option:hover, .dashboard-scope-option.active { background: #eef2ff; color: #3730a3; }
 .banner { background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; border-radius: 12px; padding: 10px 14px; margin-bottom: 16px; display: flex; gap: 10px; align-items: center; }
 .banner.warn { background: #fffbeb; border-color: #fde68a; color: #92400e; }
 

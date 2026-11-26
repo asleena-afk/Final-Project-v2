@@ -1,11 +1,12 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from psycopg.types.json import Jsonb
 from app.activity import _plain, diff, log
 from app.auth import User, optional_user, require_user
 from app.db import get_db
 from app.permissions import (MEMBER_TASK_FIELDS, as_uuid, get_project, require_member, require_pm,
-                             roles_for, task_perms)
+                             require_task_creator_or_pm, roles_for, task_perms)
 from app.schemas.task import TaskCreate, TaskPatch
 from app.services.stages import STAGE_TO_STATUS, status_for_stage
 
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 COLS = ["meeting_id", "assignee_id", "title", "notes", "status", "priority", "due_date", "due_time", "is_blocked",
         "blocker_reason", "ticket_ref", "module", "estimate_hrs", "ticket_stage"]
-NOT_NULL = {"title", "notes", "status", "priority", "is_blocked"}
+NOT_NULL = {"title", "notes", "status", "priority", "due_date", "is_blocked"}
 
 SELECT = """
 select t.*, p.name as project_name, a.name as assignee_name, m.role as assignee_role
@@ -82,6 +83,52 @@ def _check_meeting(db, project_id, meeting_id, role):
         raise HTTPException(422, "That meeting is not in this project")
 
 
+def _replace_meeting_action_title(db, meeting_id, old_title, new_title, required=False):
+    if old_title == new_title:
+        return False
+    meeting = db.execute(
+        "select summary_rows,next_actions from meetings where id=%s", (meeting_id,)
+    ).fetchone()
+    if meeting is None:
+        if required:
+            raise HTTPException(409, "The meeting action item is no longer available")
+        return False
+
+    old_key = old_title.strip().casefold()
+    rows = meeting["summary_rows"]
+    next_actions = meeting["next_actions"]
+    changed = False
+    if rows is not None:
+        updated_rows = []
+        for row in rows:
+            items = row.get("action_items") or []
+            updated_items = [
+                new_title if item.strip().casefold() == old_key else item
+                for item in items
+            ]
+            changed = changed or updated_items != items
+            updated_rows.append({**row, "action_items": updated_items} if updated_items != items else row)
+        rows = updated_rows
+    if next_actions is not None:
+        updated_actions = [
+            new_title if item.strip().casefold() == old_key else item
+            for item in next_actions
+        ]
+        changed = changed or updated_actions != next_actions
+        next_actions = updated_actions
+
+    if not changed:
+        if required:
+            raise HTTPException(409, "The meeting action item changed; reload the meeting and try again")
+        return False
+    db.execute(
+        "update meetings set summary_rows=%s,next_actions=%s,updated_at=now() where id=%s",
+        (Jsonb(rows) if rows is not None else None,
+         Jsonb(next_actions) if next_actions is not None else None, meeting_id),
+    )
+    return True
+
+
 # ------------------------------------------------------------------ read (public)
 @router.get("")
 def list_tasks(
@@ -103,15 +150,19 @@ def list_tasks(
     if sort not in SORTABLE:
         raise HTTPException(422, "Cannot sort by that column")
     where, args = [], []
+    project = get_project(db, project_id) if project_id else None
     if trash:
-        if not project_id:
+        if project is None:
             raise HTTPException(422, "Trash needs a project_id")
-        require_pm(db, project_id, user)
+        if user is None:
+            raise HTTPException(401, "Sign in to continue")
+        if str(project["owner_id"]) != user.id:
+            require_member(db, project["id"], user)
+            where.append("t.created_by=%s"); args.append(user.id)
         where.append("t.deleted_at is not null")
     else:
         where.append("t.deleted_at is null")
     if project_id:
-        get_project(db, project_id)
         where.append("t.project_id=%s"); args.append(as_uuid(project_id, "Project"))
     if status:
         where.append("t.status=%s"); args.append(status)
@@ -127,21 +178,35 @@ def list_tasks(
         where.append("t.due_date <= %s"); args.append(due_to)
     clause = " and ".join(where)
     total = db.execute(f"select count(*) as n from tasks t where {clause}", args).fetchone()["n"]
+    trash_count = None
+    if trash:
+        trash_count = db.execute(
+            "select count(*) as n from tasks where project_id=%s and deleted_at is not null",
+            (project["id"],),
+        ).fetchone()["n"]
     rows = db.execute(
         f"{SELECT} where {clause} order by {SORTABLE[sort]} {'desc' if desc else 'asc'} nulls last, t.id "
         "limit %s offset %s",
         [*args, page_size, (page - 1) * page_size],
     ).fetchall()
-    return {"items": present(rows, db, user), "total": total, "page": page, "page_size": page_size}
+    result = {
+        "items": present(rows, db, user),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+    if trash:
+        result["trash_count"] = trash_count
+    return result
 
 
 @router.get("/{tid}")
 def get_task(tid: str, user: User | None = Depends(optional_user), db=Depends(get_db)):
     task = fetch_task(db, tid)
     if task["deleted_at"] is not None:
-        # a deleted task is visible to the PM only
+        # A creator can access their own deleted task; the PM can access every deleted task.
         try:
-            require_pm(db, task["project_id"], user)
+            require_task_creator_or_pm(db, task, user)
         except HTTPException:
             raise HTTPException(404, "Task not found")
     return present([task], db, user)[0]
@@ -152,7 +217,7 @@ def task_history(tid: str, user: User = Depends(require_user), db=Depends(get_db
     task = fetch_task(db, tid)
     require_member(db, task["project_id"], user)
     return db.execute(
-        "select l.id, l.action, l.entity_label, l.changes, l.created_at, coalesce(p.name, l.actor_name) as actor_name "
+        "select l.id, l.action, l.entity, l.entity_label, l.changes, l.created_at, coalesce(p.name, l.actor_name) as actor_name "
         "from activity_log l left join profiles p on p.id=l.actor_id where l.task_id=%s "
         "order by l.created_at desc, l.id desc limit 200", (task["id"],)).fetchall()
 
@@ -164,6 +229,12 @@ def create_task(body: TaskCreate, user: User = Depends(require_user), db=Depends
     role = require_member(db, project["id"], user)  # any member may add tasks
     _check_assignee(db, project["id"], body.assignee_id)
     _check_meeting(db, project["id"], body.meeting_id, role)
+    if body.meeting_action_item is not None:
+        if body.meeting_id is None:
+            raise HTTPException(422, "meeting_action_item requires meeting_id")
+        _replace_meeting_action_title(
+            db, body.meeting_id, body.meeting_action_item, body.title, required=True
+        )
     data = normalize(body.model_dump())
     row = db.execute(
         f"insert into tasks (project_id,created_by,{','.join(COLS)}) values (%s,%s,{','.join(['%s'] * len(COLS))}) "
@@ -211,6 +282,8 @@ def update_task(tid: str, body: TaskPatch, user: User = Depends(require_user), d
     merged = normalize({**{c: task[c] for c in COLS}, **patch})
     changes = diff(task, merged, COLS)
     if changes:
+        if "title" in changes and task["meeting_id"]:
+            _replace_meeting_action_title(db, task["meeting_id"], task["title"], merged["title"])
         db.execute(
             f"update tasks set {','.join(f'{c}=%s' for c in COLS)}, updated_at=now() where id=%s",
             [*[merged[c] for c in COLS], task["id"]],
@@ -228,9 +301,9 @@ def update_task(tid: str, body: TaskPatch, user: User = Depends(require_user), d
 
 @router.delete("/{tid}", status_code=204)
 def delete_task(tid: str, user: User = Depends(require_user), db=Depends(get_db)):
-    """Soft delete: the task goes to the project's trash and the PM can restore it."""
+    """Soft delete: the creator or project manager can move the task to the trash."""
     task = fetch_task(db, tid)
-    require_pm(db, task["project_id"], user)
+    require_task_creator_or_pm(db, task, user)
     if task["deleted_at"] is not None:
         raise HTTPException(404, "Task not found")
     db.execute("update tasks set deleted_at=now(), deleted_by=%s, updated_at=now() where id=%s", (user.id, task["id"]))
@@ -241,7 +314,7 @@ def delete_task(tid: str, user: User = Depends(require_user), db=Depends(get_db)
 @router.post("/{tid}/restore")
 def restore_task(tid: str, user: User = Depends(require_user), db=Depends(get_db)):
     task = fetch_task(db, tid)
-    require_pm(db, task["project_id"], user)
+    require_task_creator_or_pm(db, task, user)
     if task["deleted_at"] is None:
         raise HTTPException(409, "This task is not deleted")
     db.execute("update tasks set deleted_at=null, deleted_by=null, updated_at=now() where id=%s", (task["id"],))

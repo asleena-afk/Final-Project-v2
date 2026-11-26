@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Download, FileUp, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { ErrorText } from "../components/Bits";
+import TaskForm from "../components/TaskForm";
 import { api } from "../api";
 
 function NameList({ label, names, onChange }) {
@@ -26,6 +27,12 @@ const SLOTS = (() => {
   }
   return out;
 })();
+
+const actionTaskKey = (text) => text.trim().slice(0, 160).trim().toLowerCase();
+const filenamePart = (value, fallback) => String(value ?? "")
+  .replace(/[<>:"\/\\|?*\u0000-\u001f]/g, "_")
+  .trim()
+  .replace(/[. ]+$/g, "") || fallback;
 
 // Start and end dropdowns that save one text value: "2.30pm - 3.30pm".
 function TimeRange({ value, onChange }) {
@@ -62,9 +69,7 @@ export default function MeetingDetail() {
   const [txChars, setTxChars] = useState(0);
   const [members, setMembers] = useState([]);
   const [picked, setPicked] = useState({});
-  const [assign, setAssign] = useState({});
-  const [editingAction, setEditingAction] = useState(null);
-  const [editActionText, setEditActionText] = useState("");
+  const [creatingAction, setCreatingAction] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -81,6 +86,7 @@ export default function MeetingDetail() {
   if (!m) return <p className="muted">Loading…</p>;
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
   const body = () => ({ ...f, meeting_date: f.meeting_date || null, meeting_time: f.meeting_time || null, location: f.location || null, transcript });
+  const assignedTasks = new Map((m.assigned_action_items || []).map((task) => [actionTaskKey(task.title), task]));
 
   async function run(label, fn) {
     setBusy(label); setError(""); setInfo("");
@@ -94,23 +100,13 @@ export default function MeetingDetail() {
     setTranscript(r.text); setTxChars(r.characters); setShowTx(true); setInfo(`Loaded ${r.characters.toLocaleString()} characters. Press Save to keep it.`);
   });
   const summarize = () => run("sum", async () => {
+    const replacingSummary = m.summarised;
     apply(await api.put(`/meetings/${id}`, body())); setTranscript(null);
-    apply(await api.post(`/meetings/${id}/summarize`)); setInfo("Summary ready.");
+    apply(await api.post(`/meetings/${id}/summarize`));
+    setPicked({});
+    setInfo(replacingSummary ? "Summary replaced." : "Summary ready.");
   });
   const remove = () => window.confirm("Delete this meeting? Tasks already created from it stay.") && run("del", async () => { await api.del(`/meetings/${id}`); nav("/meetings"); });
-  const makeTasks = () => run("tasks", async () => {
-    const chosen = Object.entries(picked).filter(([, selected]) => selected).map(([title]) => title);
-    for (const title of chosen) {
-      await api.post("/tasks", {
-        project_id: m.project_id,
-        meeting_id: m.id,
-        title: title.slice(0, 160),
-        assignee_id: assign[title] || null,
-      });
-    }
-    setPicked({}); apply(await api.get(`/meetings/${id}`)); setInfo(`${chosen.length} task(s) created.`);
-  });
-
   const saveActionChanges = (summaryRows, nextActions) => run("actions", async () => {
     const updated = await api.put(`/meetings/${id}`, {
       ...body(),
@@ -119,35 +115,6 @@ export default function MeetingDetail() {
     });
     apply(updated);
   });
-
-  const startEditAction = () => {
-    const selected = Object.entries(picked).filter(([, selected]) => selected).map(([text]) => text);
-    if (selected.length !== 1) return;
-    setEditingAction(selected[0]);
-    setEditActionText(selected[0]);
-  };
-
-  const saveEditedAction = () => {
-    const replacement = editActionText.trim();
-    if (!editingAction || !replacement) return;
-    const oldKey = editingAction.trim().toLowerCase();
-    const summaryRows = (m.summary_rows || []).map((row) => ({
-      ...row,
-      action_items: (row.action_items || []).map((text) =>
-        text.trim().toLowerCase() === oldKey ? replacement : text
-      ),
-    }));
-    const nextActions = (m.next_actions || []).map((text) =>
-      text.trim().toLowerCase() === oldKey ? replacement : text
-    );
-    setPicked((current) => ({
-      ...Object.fromEntries(Object.entries(current).filter(([text]) => text !== editingAction)),
-      [replacement]: true,
-    }));
-    setEditingAction(null);
-    setEditActionText("");
-    saveActionChanges(summaryRows, nextActions);
-  };
 
   const deleteSelectedActions = () => {
     const selected = new Set(
@@ -167,9 +134,53 @@ export default function MeetingDetail() {
       (text) => !selected.has(text.trim().toLowerCase())
     );
     setPicked({});
-    setAssign({});
-    setEditingAction(null);
     saveActionChanges(summaryRows, nextActions);
+  };
+
+  const beginActionTask = (action, assigneeId) => {
+    if (!assigneeId) return;
+    setPicked((current) => {
+      const next = { ...current };
+      delete next[action.text];
+      return next;
+    });
+    setCreatingAction({ title: action.text.slice(0, 160), actionItem: action.text, assigneeId });
+  };
+
+  const beginManualTask = () => {
+    setCreatingAction({ title: "", actionItem: null, assigneeId: "" });
+  };
+
+  const actionTaskSaved = (task) => {
+    const actionItem = creatingAction?.actionItem;
+    setCreatingAction(null);
+    if (!actionItem) {
+      api.get(`/meetings/${id}`).then((row) => {
+        apply(row);
+        setInfo("Task created.");
+      }).catch((e) => setError(e.message));
+      return;
+    }
+
+    const titleChanged = task.title.trim() !== creatingAction.title.trim();
+    const originalKey = actionItem.trim().toLowerCase();
+    setM((current) => {
+      if (!current) return current;
+      const replaceAction = (text) => titleChanged && text.trim().toLowerCase() === originalKey ? task.title : text;
+      return {
+        ...current,
+        summary_rows: current.summary_rows?.map((row) => ({
+          ...row,
+          action_items: (row.action_items || []).map(replaceAction),
+        })),
+        next_actions: current.next_actions?.map(replaceAction),
+        assigned_action_items: [
+          ...(current.assigned_action_items || []),
+          { title: task.title, assignee_id: task.assignee_id, assignee_name: task.assignee_name },
+        ],
+      };
+    });
+    api.get(`/meetings/${id}`).then(apply).catch((e) => setError(e.message));
   };
 
   const actions = (() => {
@@ -180,16 +191,47 @@ export default function MeetingDetail() {
         if (key && !seen.has(key)) seen.set(key, { text: text.trim(), topic: row.topic });
       });
     });
-    (m.next_actions || []).forEach((text) => {
-      const key = text.trim().toLowerCase();
-      if (key && !seen.has(key)) seen.set(key, { text: text.trim(), topic: "Next action" });
-    });
     return [...seen.values()];
   })();
+  const unassignedActions = actions.filter((action) => !assignedTasks.has(actionTaskKey(action.text)));
+  const createdActions = actions.filter((action) => assignedTasks.has(actionTaskKey(action.text)));
+  const nextActionDetails = (m.next_actions || [])
+    .map((text, index) => `${index + 1}. ${text.replace(/^\s*\d+[.)]\s*/, "").trim()}`)
+    .join("\n");
+  const renderAction = (action) => {
+    const key = action.text;
+    const task = assignedTasks.get(actionTaskKey(key));
+    return (
+      <div key={key} className="row" style={{ marginBottom: 6 }}>
+        <input
+          type="checkbox"
+          checked={!!task || !!picked[key]}
+          disabled={!!task}
+          onChange={(e) => setPicked((p) => ({ ...p, [key]: e.target.checked }))}
+          aria-label={task ? `${action.text} (created and assigned)` : action.text}
+        />
+        <span className="grow">{action.text} <span className="small muted">({action.topic})</span></span>
+        {task ? (
+          <span className="small muted" style={{ width: 190, textAlign: "right" }}>
+            Created and assigned to{" "}
+            <Link
+              to={`/projects/${m.project_id}`}
+              state={{ assignedPerson: { id: task.assignee_id, name: task.assignee_name } }}
+            >
+              {task.assignee_name || "a team member"}
+            </Link>
+          </span>
+        ) : (
+          <select style={{ width: 190 }} value="" onChange={(e) => beginActionTask(action, e.target.value)}>
+            <option value="">Unassigned</option>{members.map((x) => <option key={x.user_id} value={x.user_id}>{x.name} ({x.role})</option>)}</select>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
-      <div className="page-head"><h1>{m.title}</h1><span className="sub"><Link to="/meetings">Meetings</Link> · {m.project_name}</span><span className="grow" />
+      <div className="page-head"><h1>{m.title}</h1><span className="sub"><Link to="/meetings">Meetings</Link> · <Link to={`/projects/${m.project_id}`}>{m.project_name}</Link></span><span className="grow" />
         <button className="btn danger" onClick={remove}><Trash2 size={15} /> Delete</button><button className="btn primary" disabled={busy === "save"} onClick={save}>Save</button></div>
       <ErrorText error={error} />{info && <p className="ok-text">{info}</p>}
 
@@ -208,7 +250,7 @@ export default function MeetingDetail() {
         <div className="row wrap"><h2 style={{ margin: 0 }} className="grow">Transcript</h2>
           <input ref={fileRef} type="file" hidden accept=".docx,.vtt,.srt,.txt" onChange={(e) => { upload(e.target.files[0]); e.target.value = ""; }} />
           <button className="btn" onClick={() => fileRef.current.click()} disabled={busy === "upload"}><FileUp size={15} /> Upload file</button>
-          <button className="btn primary" disabled={!!busy || !txChars} onClick={summarize}><Sparkles size={15} /> {busy === "sum" ? "Summarising…" : "Summarise with AI"}</button></div>
+          <button className="btn primary" disabled={!!busy || !txChars} onClick={summarize}><Sparkles size={15} /> {busy === "sum" ? "Summarising…" : m.summarised ? "Summarise again with AI" : "Summarise with AI"}</button></div>
         {!showTx ? (
           <p className="muted" style={{ marginBottom: 0 }}>{txChars ? `${txChars.toLocaleString()} characters` : "No transcript yet. Upload a .docx, .vtt, .srt or .txt file, or paste text."}{" "}
             <button className="btn sm" onClick={txChars ? loadTx : () => { setTranscript(""); setShowTx(true); }}>{txChars ? "Show transcript" : "Paste text"}</button></p>
@@ -222,53 +264,47 @@ export default function MeetingDetail() {
 
       {m.summary_rows && (
         <div className="card">
-          <div className="row"><h2 className="grow" style={{ margin: 0 }}>Summary</h2><button className="btn excel-button" onClick={() => api.download(`/meetings/${id}/export`, "meeting-summary.xlsx").catch((e) => setError(e.message))}><Download size={15} /> Download Excel</button></div>
+          <div className="row"><h2 className="grow" style={{ margin: 0 }}>Summary</h2><button className="btn excel-button" onClick={() => api.download(`/meetings/${id}/export`, `${filenamePart(m.title, "Meeting")}_${filenamePart(m.meeting_date, "undated")}.xlsx`).catch((e) => setError(e.message))}><Download size={15} /> Download Excel</button></div>
           <div className="table-wrap"><table><thead><tr><th>No.</th><th>Topic</th><th>Details</th><th>Action items</th></tr></thead>
-            <tbody>{m.summary_rows.map((r) => <tr key={r.no}><td>{r.no}</td><td><b>{r.topic}</b></td><td style={{ whiteSpace: "pre-wrap" }}>{r.details}</td><td>{(r.action_items || []).map((a, i) => <div key={i}>• {a}</div>)}</td></tr>)}</tbody></table></div>
+            <tbody>
+              {m.summary_rows.map((r) => <tr key={r.no}><td>{r.no}</td><td><b>{r.topic}</b></td><td style={{ whiteSpace: "pre-wrap" }}>{r.details}</td><td>{(r.action_items || []).map((a, i) => <div key={i}>• {a}</div>)}</td></tr>)}
+            </tbody></table></div>
+          {nextActionDetails && (
+            <div style={{ marginTop: 16 }}>
+              <h2 style={{ margin: "0 0 8px" }}>Next action</h2>
+              <div style={{ whiteSpace: "pre-wrap" }}>{nextActionDetails}</div>
+            </div>
+          )}
           {actions.length > 0 && (
             <>
               <div className="row wrap" style={{ marginTop: 16, marginBottom: 8 }}>
                 <h2 className="grow" style={{ margin: 0 }}>Turn action items into tasks</h2>
               </div>
-              {actions.map((a, i) => {
-                const key = a.text;
-                return (
-                  <div key={i} className="row" style={{ marginBottom: 6 }}>
-                    <input type="checkbox" checked={!!picked[key]} onChange={(e) => setPicked((p) => ({ ...p, [key]: e.target.checked }))} aria-label={a.text} />
-                    {editingAction === key ? (
-                      <input
-                        className="grow"
-                        value={editActionText}
-                        maxLength={160}
-                        onChange={(e) => setEditActionText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") saveEditedAction();
-                          if (e.key === "Escape") { setEditingAction(null); setEditActionText(""); }
-                        }}
-                        autoFocus
-                      />
-                    ) : (
-                      <span className="grow">{a.text} <span className="small muted">({a.topic})</span></span>
-                    )}
-                    <select style={{ width: 190 }} value={assign[key] || ""} onChange={(e) => setAssign((s) => ({ ...s, [key]: e.target.value }))}>
-                      <option value="">Unassigned</option>{members.map((x) => <option key={x.user_id} value={x.user_id}>{x.name} ({x.role})</option>)}</select>
-                  </div>
-                );
-              })}
-              {editingAction && (
-                <div className="row" style={{ marginBottom: 8 }}>
-                  <button className="btn sm primary" disabled={!editActionText.trim() || busy === "actions"} onClick={saveEditedAction}>Save edit</button>
-                  <button className="btn sm" disabled={busy === "actions"} onClick={() => { setEditingAction(null); setEditActionText(""); }}>Cancel</button>
-                </div>
+              {unassignedActions.map(renderAction)}
+              {createdActions.length > 0 && (
+                <>
+                  <div className="sec-title" style={{ marginTop: 12 }}>Created and assigned</div>
+                  {createdActions.map(renderAction)}
+                </>
               )}
-              <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
-                <button className="btn sm" disabled={Object.values(picked).filter(Boolean).length !== 1 || busy === "actions"} onClick={startEditAction}>Edit</button>
-                <button className="btn sm danger" disabled={!Object.values(picked).some(Boolean) || busy === "actions"} onClick={deleteSelectedActions}>Delete selected</button>
-                <button className="btn primary" disabled={busy === "tasks" || !Object.values(picked).some(Boolean)} onClick={makeTasks}>Create selected tasks</button>
-              </div>
             </>
           )}
+          <div className="row" style={{ justifyContent: "flex-start", gap: 8, marginTop: 10 }}>
+            <button className="btn sm primary" onClick={beginManualTask}><Plus size={14} /> Add task</button>
+            <button className="btn sm danger" disabled={!Object.values(picked).some(Boolean) || busy === "actions"} onClick={deleteSelectedActions}>Delete selected</button>
+          </div>
         </div>
+      )}
+      {creatingAction && (
+        <TaskForm
+          projectId={m.project_id}
+          meetingId={m.id}
+          meetingActionItem={creatingAction.actionItem}
+          members={members}
+          initial={{ title: creatingAction.title, assignee_id: creatingAction.assigneeId }}
+          onClose={() => setCreatingAction(null)}
+          onSaved={actionTaskSaved}
+        />
       )}
     </>
   );

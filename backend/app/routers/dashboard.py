@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException
 from app.auth import User, optional_user
 from app.db import get_db
 from app.permissions import roles_for
@@ -7,10 +9,28 @@ router = APIRouter(tags=["dashboard"])
 
 
 @router.get("/dashboard")
-def dashboard(user: User | None = Depends(optional_user), db=Depends(get_db)):
+def dashboard(
+    scope: Literal["all", "my_projects", "my_tasks"] = "all",
+    user: User | None = Depends(optional_user),
+    db=Depends(get_db),
+):
     """Public. Counts ignore tasks in the trash."""
+    if scope != "all" and user is None:
+        raise HTTPException(401, "Sign in to view your dashboard")
+
+    task_scope = ""
+    project_scope = ""
+    args = []
+    if scope == "my_tasks":
+        task_scope = " and t.assignee_id=%s"
+        project_scope = "where t.id is not null"
+        args.append(user.id)
+    elif scope == "my_projects":
+        project_scope = "where p.id in (select project_id from project_members where user_id=%s)"
+        args.append(user.id)
+
     projects = db.execute(
-        """
+        f"""
         select p.id, p.name, p.status, p.health, p.health_note, o.name as owner_name,
           count(t.id) as total,
           count(t.id) filter (where t.status='todo') as todo,
@@ -22,9 +42,11 @@ def dashboard(user: User | None = Depends(optional_user), db=Depends(get_db)):
           count(t.id) filter (where t.status<>'done' and t.due_date between current_date and current_date+7) as due_soon
         from projects p
         left join profiles o on o.id = p.owner_id
-        left join tasks t on t.project_id = p.id and t.deleted_at is null
+        left join tasks t on t.project_id = p.id and t.deleted_at is null{task_scope}
+        {project_scope}
         group by p.id, o.name order by p.created_at desc
-        """
+        """,
+        args,
     ).fetchall()
     roles = roles_for(db, user)
     for p in projects:

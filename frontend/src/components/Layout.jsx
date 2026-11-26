@@ -23,8 +23,8 @@ export default function Layout() {
     return unsubscribe;
   }, [signedIn]);
   const dueNow = agenda ? agenda.overdue.length + agenda.due_today.length : 0;
-  const link = (to, Icon, label, extra) => (
-    <NavLink to={to} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
+  const link = (to, Icon, label, extra = null, end = false) => (
+    <NavLink to={to} end={end} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
       <Icon size={18} /> {label} {extra}
     </NavLink>
   );
@@ -35,14 +35,14 @@ export default function Layout() {
         <div className="logo"><Logo /> Task Meeting Tracker</div>
         {link("/", LayoutDashboard, "Dashboard")}
         {link("/calendar", CalendarDays, "Calendar", dueNow > 0 && <span className="nav-badge" title="Due today or overdue">{dueNow}</span>)}
-        {link("/projects", FolderKanban, "All Projects")}
+        {link("/projects", FolderKanban, "All Projects", null, true)}
         {link("/team", Users, "Team")}
         {isPm && link("/meetings", NotebookText, "Meetings")}
         {signedIn && link("/logs", History, "Logs")}
         {link("/reports", BarChart3, "Reports")}
         <div className="nav-group">My Projects</div>
         {myProjects.map((p) => (
-          <NavLink key={p.id} to={`/projects/${p.id}`} className={({ isActive }) => `nav-link sidebar-project-title${isActive ? " active" : ""}`}>
+          <NavLink key={p.id} to={`/projects/${p.id}?task_scope=mine`} className={({ isActive }) => `nav-link sidebar-project-title${isActive ? " active" : ""}`}>
             <span className="nav-dot" style={{ background: accent(p.name) }} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
           </NavLink>
         ))}

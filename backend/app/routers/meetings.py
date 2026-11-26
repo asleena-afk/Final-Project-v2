@@ -34,6 +34,19 @@ def _owned(db, mid, user: User, light=True) -> dict:
     if str(row["owner_id"]) != user.id:
         raise HTTPException(403, "Meetings are private to the project manager")
     row.pop("owner_id", None)
+    row["assigned_action_items"] = [
+        {
+            "title": task["title"],
+            "assignee_id": str(task["assignee_id"]),
+            "assignee_name": task["assignee_name"],
+        }
+        for task in db.execute(
+            "select t.title, t.assignee_id, p.name as assignee_name "
+            "from tasks t left join profiles p on p.id=t.assignee_id "
+            "where t.meeting_id=%s and t.assignee_id is not null order by t.created_at",
+            (row["id"],),
+        ).fetchall()
+    ]
     return row
 
 
